@@ -229,7 +229,12 @@ async def entrypoint(ctx: JobContext) -> None:
     agent = SpeedCareAgent(language="en", db=db, http_client=http)
 
     session = AgentSession(
-        vad=silero.VAD.load(),
+        # Tighter endpointing — default min_silence_duration is 0.55s, we
+        # drop to 0.35s. This shaves ~200ms off every turn at the cost of
+        # being slightly more eager to cut in. Bump back to 0.5 if you see
+        # mid-sentence cutoffs in Tamil/Hindi where pauses are longer.
+        vad=silero.VAD.load(min_silence_duration=0.35),
+        min_endpointing_delay=0.4,
         stt=SarvamSTT(language="en"),
         llm=_StubLLM(),
         tts=SarvamTTS(language="en"),
