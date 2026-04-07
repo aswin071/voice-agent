@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedCare Voice Agent - WebRTC Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.0.0/dist/livekit-client.umd.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #333; margin-bottom: 10px; font-size: 28px; }
+        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+        }
+        .status.idle { background: #f0f0f0; color: #666; }
+        .status.connecting { background: #fff3cd; color: #856404; }
+        .status.connected { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .button {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+        }
+        .button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .button.primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .button.primary:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+        .button.danger { background: #dc3545; color: white; }
+        .button.danger:hover:not(:disabled) { background: #c82333; }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 14px;
+        }
+        .section { margin-top: 20px; padding-top: 20px; border-top: 1px solid #eee; }
+        .section-title {
+            font-size: 12px; text-transform: uppercase; color: #999;
+            margin-bottom: 10px; letter-spacing: 1px;
+        }
+        .info-item { display: flex; justify-content: space-between; padding: 8px 0; font-size: 14px; }
+        .info-label { color: #666; }
+        .info-value { color: #333; font-weight: 500; }
+        .log-section {
+            margin-top: 20px; background: #f8f9fa; border-radius: 10px;
+            padding: 15px; max-height: 200px; overflow-y: auto;
+        }
+        .log-entry {
+            font-family: 'Courier New', monospace; font-size: 12px;
+            padding: 4px 0; border-bottom: 1px solid #e9ecef;
+        }
+        .log-time { color: #999; }
+        .mic-indicator {
+            display: flex; align-items: center; justify-content: center;
+            gap: 10px; margin: 20px 0; padding: 20px;
+            background: #f8f9fa; border-radius: 10px;
+        }
+        .mic-indicator.active { background: #d4edda; }
+        .mic-indicator.speaking { background: #fff3cd; }
+        .mic-icon { font-size: 24px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚗 SpeedCare Voice Agent</h1>
+        <p class="subtitle">WebRTC Voice Test</p>
+
+        <div id="status" class="status idle">Enter room name to connect</div>
+
+        <!-- STEP 1: Enter Room Name -->
+        <div class="section">
+            <div class="section-title">Room Configuration</div>
+            <input type="text" id="roomName" placeholder="Paste room name from dispatch here" />
+            <select id="language">
+                <option value="ta">Tamil (தமிழ்)</option>
+                <option value="hi">Hindi (हिन्दी)</option>
+                <option value="en" selected>English</option>
+                <option value="ml">Malayalam (മലയാളം)</option>
+            </select>
+        </div>
+
+        <!-- STEP 2: Connect -->
+        <button id="connectBtn" class="button primary" onclick="connect()">Connect to Voice Agent</button>
+        <button id="disconnectBtn" class="button danger" onclick="disconnect()" disabled>End Call</button>
+
+        <!-- Mic Status -->
+        <div id="micIndicator" class="mic-indicator" style="display: none;">
+            <span class="mic-icon">🎤</span>
+            <span id="micStatus">Ready</span>
+        </div>
+
+        <!-- Connection Info -->
+        <div class="section">
+            <div class="section-title">Connection Info</div>
+            <div class="info-item">
+                <span class="info-label">Room:</span>
+                <span class="info-value" id="displayRoomName">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Participant:</span>
+                <span class="info-value" id="participantId">-</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Status:</span>
+                <span class="info-value" id="connectionState">Disconnected</span>
+            </div>
+        </div>
+
+        <!-- Logs -->
+        <div class="log-section" id="logSection" style="display: none;">
+            <div class="section-title">Event Log</div>
+            <div id="logContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        // LiveKit configuration
+        const LIVEKIT_URL = 'wss://ruka-voice-agent-rim8gdnh.livekit.cloud';
+
+        let room = null;
+        let localTrack = null;
+
+        function log(message) {
+            const container = document.getElementById('logContainer');
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">${time}</span> ${message}`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+            console.log(`[${time}] ${message}`);
+        }
+
+        function updateStatus(status, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = message;
+            log(message);
+        }
+
+        function updateConnectionState(state) {
+            document.getElementById('connectionState').textContent = state;
+        }
+
+        async function getToken(roomName, participantName) {
+            const response = await fetch('http://localhost:8000/api/v1/auth/livekit-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    call_sid: roomName,
+                    participant_identity: participantName,
+                    ttl_seconds: 3600
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to get token: ' + await response.text());
+            }
+
+            const data = await response.json();
+            return data.data.token;
+        }
+
+        async function connect() {
+            const roomName = document.getElementById('roomName').value.trim();
+            if (!roomName) {
+                alert('Please enter the room name from the dispatch command');
+                return;
+            }
+
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            connectBtn.disabled = true;
+            updateStatus('connecting', 'Connecting to LiveKit...');
+
+            try {
+                const participantName = `caller_${Date.now()}`;
+                document.getElementById('displayRoomName').textContent = roomName;
+                document.getElementById('participantId').textContent = participantName;
+
+                log(`Room: ${roomName}`);
+                log('Requesting token...');
+
+                // Get token
+                const token = await getToken(roomName, participantName);
+                log('Token received');
+
+                // Create room
+                room = new LivekitClient.Room({
+                    adaptiveStream: true,
+                    dynacast: true,
+                });
+
+                // Event listeners
+                room.on('connected', () => {
+                    updateStatus('connected', 'Connected! Speak now...');
+                    updateConnectionState('Connected');
+                    document.getElementById('micIndicator').style.display = 'flex';
+                    document.getElementById('logSection').style.display = 'block';
+                });
+
+                room.on('disconnected', (reason) => {
+                    updateStatus('idle', `Disconnected: ${reason || 'normal'}`);
+                    updateConnectionState('Disconnected');
+                    document.getElementById('micIndicator').style.display = 'none';
+                });
+
+                room.on('participantConnected', (participant) => {
+                    log(`✓ Agent joined: ${participant.identity}`);
+                });
+
+                room.on('participantDisconnected', (participant) => {
+                    log(`✗ Agent left: ${participant.identity}`);
+                });
+
+                room.on('trackSubscribed', (track, publication, participant) => {
+                    log(`Audio from agent: ${track.kind}`);
+                    if (track.kind === 'audio') {
+                        const audioElement = track.attach();
+                        audioElement.autoplay = true;
+                        document.body.appendChild(audioElement);
+
+                        track.on('muted', () => {
+                            document.getElementById('micIndicator').classList.remove('speaking');
+                            document.getElementById('micStatus').textContent = 'Listening...';
+                        });
+                        track.on('unmuted', () => {
+                            document.getElementById('micIndicator').classList.add('speaking');
+                            document.getElementById('micStatus').textContent = 'Agent speaking...';
+                        });
+                    }
+                });
+
+                room.on('trackUnsubscribed', (track) => {
+                    track.detach();
+                });
+
+                // Connect with token
+                await room.connect(LIVEKIT_URL, token);
+                log('Room connected');
+
+                // Enable microphone
+                localTrack = await LivekitClient.createLocalAudioTrack();
+                await room.localParticipant.publishTrack(localTrack);
+                log('Microphone active');
+                document.getElementById('micIndicator').classList.add('active');
+
+                disconnectBtn.disabled = false;
+
+            } catch (error) {
+                console.error('Connection error:', error);
+                updateStatus('error', `Error: ${error.message}`);
+                connectBtn.disabled = false;
+                log(`ERROR: ${error.message}`);
+            }
+        }
+
+        async function disconnect() {
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            disconnectBtn.disabled = true;
+
+            try {
+                if (localTrack) {
+                    localTrack.stop();
+                    localTrack = null;
+                }
+                if (room) {
+                    await room.disconnect();
+                    room = null;
+                }
+                updateStatus('idle', 'Disconnected');
+                connectBtn.disabled = false;
+                document.getElementById('micIndicator').style.display = 'none';
+            } catch (error) {
+                log(`Error disconnecting: ${error.message}`);
+            }
+        }
+
+        window.addEventListener('beforeunload', () => {
+            if (room) room.disconnect();
+        });
+    </script>
+</body>
+</html>

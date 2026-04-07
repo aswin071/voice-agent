@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SpeedCare Voice Agent – Architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      padding: 40px 24px;
+      min-height: 100vh;
+    }
+    h1 {
+      text-align: center;
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+      background: linear-gradient(135deg, #60a5fa, #a78bfa, #34d399);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      text-align: center;
+      color: #64748b;
+      font-size: 0.9rem;
+      margin-bottom: 48px;
+    }
+    /* ─── Layers ─── */
+    .diagram {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .layer {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+    }
+    .layer-label {
+      writing-mode: vertical-rl;
+      text-orientation: mixed;
+      transform: rotate(180deg);
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: #475569;
+      min-width: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 8px 0;
+    }
+    .layer-content {
+      flex: 1;
+      display: flex;
+      gap: 12px;
+      padding: 16px 0;
+    }
+    /* ─── Arrow between layers ─── */
+    .arrow-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 40px;
+      gap: 0;
+    }
+    .arrow-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    .arrow-label {
+      font-size: 0.7rem;
+      color: #475569;
+      letter-spacing: 0.5px;
+    }
+    .arrow-svg { display: block; }
+    /* ─── Cards ─── */
+    .card {
+      flex: 1;
+      border-radius: 12px;
+      padding: 16px 18px;
+      border: 1px solid;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .card-title {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card-body {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .pill {
+      display: inline-block;
+      font-size: 0.68rem;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 99px;
+      margin: 2px 2px 2px 0;
+    }
+    .badge {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      font-size: 0.6rem;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 99px;
+    }
+    /* ─── Color Themes ─── */
+    /* User/Input */
+    .theme-user    { background: #0c1a2e; border-color: #1e40af; }
+    .theme-user .card-title { color: #60a5fa; }
+    .pill-user { background: #1e3a5f; color: #93c5fd; }
+    /* LiveKit */
+    .theme-lk      { background: #0d1f0d; border-color: #166534; }
+    .theme-lk .card-title { color: #4ade80; }
+    .pill-lk { background: #14532d; color: #86efac; }
+    /* STT */
+    .theme-stt     { background: #1a0f2e; border-color: #6b21a8; }
+    .theme-stt .card-title { color: #c084fc; }
+    .pill-stt { background: #3b0764; color: #d8b4fe; }
+    /* LLM */
+    .theme-llm     { background: #1a1200; border-color: #92400e; }
+    .theme-llm .card-title { color: #fbbf24; }
+    .pill-llm { background: #451a03; color: #fde68a; }
+    /* TTS */
+    .theme-tts     { background: #1a0a0a; border-color: #991b1b; }
+    .theme-tts .card-title { color: #f87171; }
+    .pill-tts { background: #450a0a; color: #fca5a5; }
+    /* Agents */
+    .theme-agent   { background: #0f1a2e; border-color: #1d4ed8; }
+    .theme-agent .card-title { color: #7dd3fc; }
+    .pill-agent { background: #1e3a5f; color: #bae6fd; }
+    /* Infra */
+    .theme-infra   { background: #131313; border-color: #374151; }
+    .theme-infra .card-title { color: #9ca3af; }
+    .pill-infra { background: #1f2937; color: #d1d5db; }
+    /* Dashboard */
+    .theme-dash    { background: #0f1a1a; border-color: #0f766e; }
+    .theme-dash .card-title { color: #2dd4bf; }
+    .pill-dash { background: #042f2e; color: #5eead4; }
+
+    .badge-done   { background: #166534; color: #86efac; }
+    .badge-wip    { background: #854d0e; color: #fde68a; }
+    .badge-plan   { background: #1e3a5f; color: #93c5fd; }
+
+    /* ─── Pipeline section ─── */
+    .pipeline {
+      max-width: 1100px;
+      margin: 56px auto 0;
+    }
+    .pipeline h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 10px;
+    }
+    .pipeline-flow {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      overflow-x: auto;
+      padding-bottom: 8px;
+    }
+    .pf-step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 130px;
+    }
+    .pf-box {
+      width: 130px;
+      padding: 14px 10px;
+      border-radius: 10px;
+      text-align: center;
+      border: 1px solid;
+    }
+    .pf-icon { font-size: 1.5rem; margin-bottom: 4px; }
+    .pf-title { font-size: 0.75rem; font-weight: 700; }
+    .pf-sub   { font-size: 0.65rem; color: #64748b; margin-top: 2px; }
+    .pf-arrow {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-width: 40px;
+    }
+    .pf-arrow-line {
+      width: 40px;
+      height: 2px;
+      background: linear-gradient(90deg, #334155, #475569);
+      position: relative;
+    }
+    .pf-arrow-line::after {
+      content: '';
+      position: absolute;
+      right: -1px;
+      top: -4px;
+      width: 0;
+      height: 0;
+      border-left: 7px solid #475569;
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+    }
+    .pf-label { font-size: 0.6rem; color: #475569; margin-top: 4px; text-align: center; }
+
+    /* ─── Agent state machine ─── */
+    .state-machine {
+      max-width: 1100px;
+      margin: 40px auto 0;
+    }
+    .state-machine h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 10px;
+    }
+    .sm-flow {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+    }
+    .sm-node {
+      flex: 1;
+      border-radius: 12px;
+      padding: 18px;
+      border: 1px solid;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .sm-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sm-body {
+      font-size: 0.75rem;
+      color: #94a3b8;
+      line-height: 1.6;
+    }
+    .sm-arrow {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-width: 60px;
+      padding-top: 30px;
+      gap: 4px;
+    }
+    .sm-arrow-svg { flex-shrink: 0; }
+    .sm-arrow-label { font-size: 0.6rem; color: #475569; text-align: center; }
+
+    /* ─── Future Roadmap ─── */
+    .roadmap {
+      max-width: 1100px;
+      margin: 40px auto 0;
+    }
+    .roadmap h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #94a3b8;
+      margin-bottom: 20px;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 10px;
+    }
+    .roadmap-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .rm-card {
+      border-radius: 12px;
+      padding: 18px;
+      border: 1px solid #1e293b;
+      background: #0f1117;
+    }
+    .rm-phase {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+    }
+    .rm-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin-bottom: 10px;
+    }
+    .rm-items { list-style: none; }
+    .rm-items li {
+      font-size: 0.78rem;
+      color: #64748b;
+      padding: 3px 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .rm-items li::before { content: '→'; color: #334155; }
+    .rm-done { color: #4ade80 !important; }
+    .rm-done::before { content: '✓' !important; color: #166534 !important; }
+    .rm-wip { color: #fbbf24 !important; }
+    .rm-wip::before { content: '◐' !important; color: #854d0e !important; }
+
+    .divider {
+      max-width: 1100px;
+      margin: 48px auto 0;
+      border: none;
+      border-top: 1px solid #1e293b;
+    }
+
+    /* connector lines between layers */
+    .connector {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-around;
+      height: 32px;
+      align-items: center;
+    }
+    .conn-line {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0;
+    }
+    .conn-vert {
+      width: 2px;
+      height: 16px;
+      background: linear-gradient(180deg, #1e293b, #334155);
+    }
+    .conn-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #475569;
+    }
+    .conn-label {
+      font-size: 0.6rem;
+      color: #334155;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+<h1>SpeedCare Voice Agent — Architecture</h1>
+<p class="subtitle">LiveKit · Sarvam AI · Anthropic Claude · React Dashboard</p>
+
+<div class="diagram">
+
+  <!-- ─── Layer 0: Client / Phone ─── -->
+  <div class="layer">
+    <div class="layer-label" style="color:#1e40af">Client</div>
+    <div class="layer-content">
+      <div class="card theme-user" style="flex:2">
+        <div class="card-title">📞 Customer (Caller)</div>
+        <div class="card-body">
+          Tamil · Malayalam · Hindi · English (code-mixed)<br>
+          Inbound phone call or browser audio
+        </div>
+        <div>
+          <span class="pill pill-user">SIP Phone</span>
+          <span class="pill pill-user">Browser WebRTC</span>
+          <span class="pill pill-user">Mobile App</span>
+        </div>
+      </div>
+      <div class="card theme-dash" style="flex:2">
+        <div class="card-title">🖥 Dashboard Operator</div>
+        <div class="card-body">
+          Manages customers, views call logs, triggers outbound campaigns, uploads CSV data
+        </div>
+        <div>
+          <span class="pill pill-dash">React 19</span>
+          <span class="pill pill-dash">Vite</span>
+          <span class="pill pill-dash">TailwindCSS</span>
+          <span class="pill pill-dash">Axios</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- connector -->
+  <div class="connector">
+    <div class="conn-line"><div class="conn-dot"></div><div class="conn-vert"></div><div class="conn-label">WebRTC / SIP</div><div class="conn-vert"></div></div>
+    <div class="conn-line"><div class="conn-dot"></div><div class="conn-vert"></div><div class="conn-label">HTTP REST /api</div><div class="conn-vert"></div></div>
+  </div>
+
+  <!-- ─── Layer 1: Infrastructure ─── -->
+  <div class="layer">
+    <div class="layer-label" style="color:#374151">Infra</div>
+    <div class="layer-content">
+      <div class="card theme-lk" style="flex:3">
+        <span class="badge badge-done">✓ Live</span>
+        <div class="card-title">⚡ LiveKit Cloud</div>
+        <div class="card-body">
+          Real-time audio/video infrastructure. Manages WebRTC rooms, SFU routing,
+          participant signalling, and dispatches work to the agent worker pool.
+        </div>
+        <div>
+          <span class="pill pill-lk">livekit-agents ~1.4</span>
+          <span class="pill pill-lk">Silero VAD</span>
+          <span class="pill pill-lk">Turn Detector</span>
+          <span class="pill pill-lk">Noise Cancellation</span>
+          <span class="pill pill-lk">WebRTC SFU</span>
+        </div>
+      </div>
+      <div class="card theme-infra" style="flex:2">
+        <span class="badge badge-plan">Planned</span>
+        <div class="card-title">📡 SIP Trunk</div>
+        <div class="card-body">
+          Routes PSTN calls into LiveKit rooms. Needed for real phone numbers.
+          Connects to telecom providers.
+        </div>
+        <div>
+          <span class="pill pill-infra">Exotel</span>
+          <span class="pill pill-infra">Plivo</span>
+          <span class="pill pill-infra">Twilio</span>
+        </div>
+      </div>
+      <div class="card theme-infra" style="flex:2">
+        <span class="badge badge-wip">Planned</span>
+        <div class="card-title">🗄 Backend API</div>
+        <div class="card-body">
+          REST API serving the dashboard. Stores call logs, customer records, transcripts.
+        </div>
+        <div>
+          <span class="pill pill-infra">FastAPI</span>
+          <span class="pill pill-infra">PostgreSQL</span>
+          <span class="pill pill-infra">Redis</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- connector -->
+  <div class="connector">
+    <div class="conn-line"><div class="conn-dot"></div><div class="conn-vert"></div><div class="conn-label">Raw PCM audio frames</div><div class="conn-vert"></div></div>
+    <div class="conn-line"><div class="conn-dot"></div><div class="conn-vert" style="opacity:0.3"></div><div class="conn-label"></div><div class="conn-vert" style="opacity:0.3"></div></div>
+    <div class="conn-line"><div class="conn-dot"></div><div class="conn-vert" style="opacity:0.3"></div><div class="conn-label"></div><div class="conn-vert" style="opacity:0.3"></div></div>
+  </div>
+
+  <!-- ─── Layer 2: Agent Core (STT + LLM + TTS) ─── -->
+  <div class="layer">
+    <div class="layer-label" style="color:#6b21a8">AI Core</div>
+    <div class="layer-content">
+      <div class="card theme-stt">
+        <span class="badge badge-done">✓ Live</span>
+        <div class="card-title">🎙 STT</div>
+        <div class="card-body">
+          Sarvam AI speech-to-text. Auto language detection. Flush-signal for
+          low-latency streaming transcription.
+        </div>
+        <div>
+          <span class="pill pill-stt">saaras:v3</span>
+          <span class="pill pill-stt">language=unknown</span>
+          <span class="pill pill-stt">mode=transcribe</span>
+          <span class="pill pill-stt">flush_signal=True</span>
+        </div>
+      </div>
+      <div class="card theme-llm">
+        <span class="badge badge-done">✓ Live</span>
+        <div class="card-title">🧠 LLM</div>
+        <div class="card-body">
+          Anthropic Claude Haiku. Fast, cost-effective reasoning.
+          Receives conversation history + system prompt. Emits text reply or tool call.
+        </div>
+        <div>
+          <span class="pill pill-llm">claude-haiku-4-5</span>
+          <span class="pill pill-llm">function_tools</span>
+          <span class="pill pill-llm">streaming</span>
+        </div>
+      </div>
+      <div class="card theme-tts">
+        <span class="badge badge-done">✓ Live</span>
+        <div class="card-title">🔊 TTS</div>
+        <div class="card-body">
+          Sarvam AI text-to-speech. Responds in caller's detected language.
+          Natural male voice at slightly increased rate.
+        </div>
+        <div>
+          <span class="pill pill-tts">bulbul:v3</span>
+          <span class="pill pill-tts">speaker=rahul</span>
+          <span class="pill pill-tts">rate=1.05x</span>
+          <span class="pill pill-tts">target=unknown</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- connector -->
+  <div class="connector">
+    <div class="conn-line"><div class="conn-dot"></div><div class="conn-vert"></div><div class="conn-label">AgentSession orchestration</div><div class="conn-vert"></div></div>
+  </div>
+
+  <!-- ─── Layer 3: Agent Logic ─── -->
+  <div class="layer">
+    <div class="layer-label" style="color:#1d4ed8">Agents</div>
+    <div class="layer-content">
+      <div class="card theme-agent">
+        <span class="badge badge-done">✓ Live</span>
+        <div class="card-title">👋 GreetingAgent</div>
+        <div class="card-body">
+          Entry point. Warmly greets caller as "Ravi from SpeedCare".
+          Identifies intent via natural conversation.
+        </div>
+        <div>
+          <span class="pill pill-agent">booking</span>
+          <span class="pill pill-agent">status</span>
+          <span class="pill pill-agent">pricing</span>
+          <span class="pill pill-agent">transfer_to_booking()</span>
+        </div>
+      </div>
+      <div class="card theme-agent" style="flex:1.5">
+        <span class="badge badge-done">✓ Live</span>
+        <div class="card-title">📋 BookingAgent</div>
+        <div class="card-body">
+          Handles all three intents with intent-specific prompts.
+          Collects structured data (name, vehicle, date/time, service type).
+          Provides pricing from knowledge base.
+        </div>
+        <div>
+          <span class="pill pill-agent">name + vehicle</span>
+          <span class="pill pill-agent">service type</span>
+          <span class="pill pill-agent">date &amp; time</span>
+          <span class="pill pill-agent">confirm_booking()</span>
+          <span class="pill pill-agent">confirm_status()</span>
+          <span class="pill pill-agent">confirm_pricing()</span>
+        </div>
+      </div>
+      <div class="card theme-agent">
+        <span class="badge badge-done">✓ Live</span>
+        <div class="card-title">✅ ConfirmationAgent</div>
+        <div class="card-body">
+          Summarises arrangement, generates reference number (SC-XXXX),
+          thanks caller and closes the call gracefully.
+        </div>
+        <div>
+          <span class="pill pill-agent">SC-XXXX ref</span>
+          <span class="pill pill-agent">call close</span>
+        </div>
+      </div>
+      <div class="card theme-infra">
+        <span class="badge badge-plan">Planned</span>
+        <div class="card-title">🔧 ToolAgent</div>
+        <div class="card-body">
+          Future: CRM lookup, calendar booking, real-time vehicle status from workshop system.
+        </div>
+        <div>
+          <span class="pill pill-infra">CRM API</span>
+          <span class="pill pill-infra">Calendar</span>
+          <span class="pill pill-infra">Workshop DB</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /diagram -->
+
+<!-- ─────────────────── PIPELINE ─────────────────── -->
+<div class="pipeline">
+  <h2>Per-Turn Audio Pipeline</h2>
+  <div class="pipeline-flow">
+
+    <div class="pf-step">
+      <div class="pf-box theme-user" style="border-color:#1e40af">
+        <div class="pf-icon">🎤</div>
+        <div class="pf-title" style="color:#60a5fa">Caller Speaks</div>
+        <div class="pf-sub">PCM audio via WebRTC</div>
+      </div>
+    </div>
+
+    <div class="pf-arrow">
+      <div class="pf-arrow-line"></div>
+      <div class="pf-label">raw audio</div>
+    </div>
+
+    <div class="pf-step">
+      <div class="pf-box theme-lk" style="border-color:#166534">
+        <div class="pf-icon">📶</div>
+        <div class="pf-title" style="color:#4ade80">VAD + Noise Cancel</div>
+        <div class="pf-sub">Silero VAD · LiveKit NC</div>
+      </div>
+    </div>
+
+    <div class="pf-arrow">
+      <div class="pf-arrow-line"></div>
+      <div class="pf-label">clean frames</div>
+    </div>
+
+    <div class="pf-step">
+      <div class="pf-box theme-stt" style="border-color:#6b21a8">
+        <div class="pf-icon">📝</div>
+        <div class="pf-title" style="color:#c084fc">Sarvam STT</div>
+        <div class="pf-sub">saaras:v3 · auto-lang</div>
+      </div>
+    </div>
+
+    <div class="pf-arrow">
+      <div class="pf-arrow-line"></div>
+      <div class="pf-label">transcript + lang</div>
+    </div>
+
+    <div class="pf-step">
+      <div class="pf-box" style="background:#131a23;border:1px solid #1d4ed8;border-radius:10px;padding:14px 10px;text-align:center">
+        <div class="pf-icon">🔄</div>
+        <div class="pf-title" style="color:#7dd3fc;font-size:.75rem">Turn Detection</div>
+        <div class="pf-sub">0.07s endpointing</div>
+      </div>
+    </div>
+
+    <div class="pf-arrow">
+      <div class="pf-arrow-line"></div>
+      <div class="pf-label">utterance</div>
+    </div>
+
+    <div class="pf-step">
+      <div class="pf-box theme-llm" style="border-color:#92400e">
+        <div class="pf-icon">🧠</div>
+        <div class="pf-title" style="color:#fbbf24">Claude Haiku</div>
+        <div class="pf-sub">haiku-4-5 · tools</div>
+      </div>
+    </div>
+
+    <div class="pf-arrow">
+      <div class="pf-arrow-line"></div>
+      <div class="pf-label">text reply</div>
+    </div>
+
+    <div class="pf-step">
+      <div class="pf-box theme-tts" style="border-color:#991b1b">
+        <div class="pf-icon">🗣</div>
+        <div class="pf-title" style="color:#f87171">Sarvam TTS</div>
+        <div class="pf-sub">bulbul:v3 · rahul</div>
+      </div>
+    </div>
+
+    <div class="pf-arrow">
+      <div class="pf-arrow-line"></div>
+      <div class="pf-label">audio stream</div>
+    </div>
+
+    <div class="pf-step">
+      <div class="pf-box theme-lk" style="border-color:#166534">
+        <div class="pf-icon">📤</div>
+        <div class="pf-title" style="color:#4ade80">LiveKit Output</div>
+        <div class="pf-sub">WebRTC broadcast</div>
+      </div>
+    </div>
+
+    <div class="pf-arrow">
+      <div class="pf-arrow-line"></div>
+      <div class="pf-label">to caller</div>
+    </div>
+
+    <div class="pf-step">
+      <div class="pf-box theme-user" style="border-color:#1e40af">
+        <div class="pf-icon">🔈</div>
+        <div class="pf-title" style="color:#60a5fa">Agent Speaks</div>
+        <div class="pf-sub">in caller's language</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ─────────────────── STATE MACHINE ─────────────────── -->
+<div class="state-machine">
+  <h2>Agent Handoff State Machine</h2>
+  <div class="sm-flow">
+
+    <div class="sm-node theme-agent" style="border-color:#1d4ed8">
+      <div class="sm-title" style="color:#60a5fa">👋 GreetingAgent</div>
+      <div class="sm-body">
+        <strong style="color:#94a3b8">Entry point for every call</strong><br><br>
+        • "Vanakkam! SpeedCare. Naan Ravi…"<br>
+        • Detect caller intent via dialogue<br>
+        • Does NOT collect data here<br><br>
+        <span class="pill pill-agent" style="font-size:.65rem">@function_tool transfer_to_booking(intent)</span>
+      </div>
+    </div>
+
+    <div class="sm-arrow">
+      <svg width="50" height="24" class="sm-arrow-svg"><line x1="0" y1="12" x2="42" y2="12" stroke="#334155" stroke-width="2"/><polygon points="42,7 50,12 42,17" fill="#475569"/></svg>
+      <div class="sm-arrow-label">intent detected</div>
+    </div>
+
+    <div class="sm-node theme-agent" style="border-color:#0369a1; flex:1.5">
+      <div class="sm-title" style="color:#38bdf8">📋 BookingAgent</div>
+      <div class="sm-body">
+        <strong style="color:#94a3b8">Intent-aware prompts</strong><br><br>
+        <em style="color:#7dd3fc">booking</em> → name, vehicle reg, service, date/time<br>
+        <em style="color:#7dd3fc">status</em> → name + job card / reg → ETA<br>
+        <em style="color:#7dd3fc">pricing</em> → service type → price range → offer booking<br><br>
+        <span class="pill pill-agent" style="font-size:.65rem">@function_tool confirm_booking()</span>
+        <span class="pill pill-agent" style="font-size:.65rem">@function_tool confirm_status()</span>
+        <span class="pill pill-agent" style="font-size:.65rem">@function_tool confirm_pricing()</span>
+      </div>
+    </div>
+
+    <div class="sm-arrow">
+      <svg width="50" height="24" class="sm-arrow-svg"><line x1="0" y1="12" x2="42" y2="12" stroke="#334155" stroke-width="2"/><polygon points="42,7 50,12 42,17" fill="#475569"/></svg>
+      <div class="sm-arrow-label">data confirmed</div>
+    </div>
+
+    <div class="sm-node theme-agent" style="border-color:#0f766e">
+      <div class="sm-title" style="color:#2dd4bf">✅ ConfirmationAgent</div>
+      <div class="sm-body">
+        <strong style="color:#94a3b8">Call closure</strong><br><br>
+        • Recite confirmed details<br>
+        • Generate ref: <code style="background:#0f2925;padding:1px 5px;border-radius:4px">SC-XXXX</code><br>
+        • "Call SpeedCare anytime"<br>
+        • Thank &amp; end call<br><br>
+        <span class="pill" style="background:#0f2925;color:#5eead4;font-size:.65rem">No further turns</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ─────────────────── ROADMAP ─────────────────── -->
+<div class="roadmap">
+  <h2>Full-Fledged Platform Roadmap</h2>
+  <div class="roadmap-grid">
+
+    <div class="rm-card" style="border-color:#166534">
+      <div class="rm-phase" style="color:#4ade80">Phase 1 — MVP ✓ Done</div>
+      <div class="rm-title">Inbound Voice Agent</div>
+      <ul class="rm-items">
+        <li class="rm-done">LiveKit + Sarvam STT/TTS pipeline</li>
+        <li class="rm-done">Claude Haiku LLM reasoning</li>
+        <li class="rm-done">3-agent handoff workflow</li>
+        <li class="rm-done">Multilingual auto-detection</li>
+        <li class="rm-done">Noise cancellation + VAD</li>
+        <li class="rm-done">React dashboard scaffold</li>
+        <li class="rm-done">Docker production build</li>
+        <li class="rm-done">Comprehensive test suite</li>
+      </ul>
+    </div>
+
+    <div class="rm-card" style="border-color:#92400e">
+      <div class="rm-phase" style="color:#fbbf24">Phase 2 — Telephony</div>
+      <div class="rm-title">Real Phone Integration</div>
+      <ul class="rm-items">
+        <li>SIP trunk setup (Exotel / Plivo)</li>
+        <li>Inbound PSTN number routing</li>
+        <li>Outbound call triggering</li>
+        <li>Call recording &amp; storage</li>
+        <li>FastAPI backend REST layer</li>
+        <li>PostgreSQL call log storage</li>
+        <li>Real-time transcript stream</li>
+        <li>Campaign scheduler (outbound)</li>
+      </ul>
+    </div>
+
+    <div class="rm-card" style="border-color:#1e40af">
+      <div class="rm-phase" style="color:#60a5fa">Phase 3 — Full Platform</div>
+      <div class="rm-title">Production-Grade System</div>
+      <ul class="rm-items">
+        <li>CRM integration (lookup &amp; write)</li>
+        <li>Live calendar slot booking</li>
+        <li>Workshop DMS API integration</li>
+        <li>Post-call analytics &amp; reporting</li>
+        <li>Supervisor live-listen &amp; barge-in</li>
+        <li>Multi-agent / multi-business support</li>
+        <li>Cost analytics per call</li>
+        <li>Fine-tuned domain LLM (optional)</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<!-- ─────────────────── TECH STACK SUMMARY ─────────────────── -->
+<div class="roadmap" style="margin-top:40px">
+  <h2>Full Tech Stack</h2>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+
+    <div class="rm-card">
+      <div class="rm-phase" style="color:#c084fc">Audio / Realtime</div>
+      <ul class="rm-items" style="gap:4px">
+        <li style="color:#94a3b8">LiveKit Cloud (SFU)</li>
+        <li style="color:#94a3b8">WebRTC</li>
+        <li style="color:#94a3b8">Silero VAD</li>
+        <li style="color:#94a3b8">LiveKit NC plugin</li>
+        <li style="color:#94a3b8">LiveKit Turn Detector</li>
+      </ul>
+    </div>
+
+    <div class="rm-card">
+      <div class="rm-phase" style="color:#34d399">AI / ML</div>
+      <ul class="rm-items" style="gap:4px">
+        <li style="color:#94a3b8">Sarvam saaras:v3 (STT)</li>
+        <li style="color:#94a3b8">Sarvam bulbul:v3 (TTS)</li>
+        <li style="color:#94a3b8">Claude Haiku-4-5 (LLM)</li>
+        <li style="color:#94a3b8">livekit-agents ~1.4</li>
+        <li style="color:#94a3b8">Multilingual NLU</li>
+      </ul>
+    </div>
+
+    <div class="rm-card">
+      <div class="rm-phase" style="color:#fbbf24">Backend</div>
+      <ul class="rm-items" style="gap:4px">
+        <li style="color:#94a3b8">Python ≥3.10</li>
+        <li style="color:#94a3b8">uv (package manager)</li>
+        <li style="color:#94a3b8">FastAPI (planned)</li>
+        <li style="color:#94a3b8">PostgreSQL (planned)</li>
+        <li style="color:#94a3b8">Docker (prod)</li>
+      </ul>
+    </div>
+
+    <div class="rm-card">
+      <div class="rm-phase" style="color:#2dd4bf">Frontend</div>
+      <ul class="rm-items" style="gap:4px">
+        <li style="color:#94a3b8">React 19 + TypeScript</li>
+        <li style="color:#94a3b8">React Router 7</li>
+        <li style="color:#94a3b8">TailwindCSS 4</li>
+        <li style="color:#94a3b8">Vite 8</li>
+        <li style="color:#94a3b8">Axios + Lucide</li>
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+<!-- ─────────────────── MVP MODEL ─────────────────── -->
+<div class="roadmap" style="margin-top:56px">
+  <h2>MVP Model for a Production Voice Agent</h2>
+  <p style="color:#64748b;font-size:0.82rem;margin-bottom:24px;line-height:1.6">
+    The minimum viable voice agent that can be deployed to real customers has 5 non-negotiable layers.
+    Every layer below must work reliably before moving to Phase 2.
+  </p>
+
+  <!-- 5 pillars grid -->
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:32px">
+
+    <div style="background:#0c1a2e;border:1px solid #1e40af;border-radius:12px;padding:16px">
+      <div style="font-size:1.4rem;margin-bottom:6px">🎙</div>
+      <div style="font-size:0.75rem;font-weight:700;color:#60a5fa;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">1 · Audio I/O</div>
+      <div style="font-size:0.75rem;color:#64748b;line-height:1.6">
+        Clean microphone capture, VAD to detect speech vs silence, noise cancellation, and low-latency audio output back to caller.
+      </div>
+      <div style="margin-top:10px">
+        <span class="pill pill-user">VAD</span>
+        <span class="pill pill-user">Noise Cancel</span>
+        <span class="pill pill-user">&lt;200ms</span>
+      </div>
+    </div>
+
+    <div style="background:#1a0f2e;border:1px solid #6b21a8;border-radius:12px;padding:16px">
+      <div style="font-size:1.4rem;margin-bottom:6px">📝</div>
+      <div style="font-size:0.75rem;font-weight:700;color:#c084fc;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">2 · STT</div>
+      <div style="font-size:0.75rem;color:#64748b;line-height:1.6">
+        Streaming speech-to-text with correct language/dialect. Word Error Rate &lt;15% on target domain vocabulary. Turn endpointing.
+      </div>
+      <div style="margin-top:10px">
+        <span class="pill pill-stt">Sarvam saaras:v3</span>
+        <span class="pill pill-stt">streaming</span>
+      </div>
+    </div>
+
+    <div style="background:#1a1200;border:1px solid #92400e;border-radius:12px;padding:16px">
+      <div style="font-size:1.4rem;margin-bottom:6px">🧠</div>
+      <div style="font-size:0.75rem;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">3 · LLM Reasoning</div>
+      <div style="font-size:0.75rem;color:#64748b;line-height:1.6">
+        Fast LLM with well-scoped system prompt, conversation history, and function tools for handoffs. Latency &lt;1s first token.
+      </div>
+      <div style="margin-top:10px">
+        <span class="pill pill-llm">Claude Haiku</span>
+        <span class="pill pill-llm">tools</span>
+      </div>
+    </div>
+
+    <div style="background:#1a0a0a;border:1px solid #991b1b;border-radius:12px;padding:16px">
+      <div style="font-size:1.4rem;margin-bottom:6px">🔊</div>
+      <div style="font-size:0.75rem;font-weight:700;color:#f87171;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">4 · TTS</div>
+      <div style="font-size:0.75rem;color:#64748b;line-height:1.6">
+        Natural-sounding voice in the caller's language. Streaming synthesis so audio starts playing before full text is ready.
+      </div>
+      <div style="margin-top:10px">
+        <span class="pill pill-tts">Sarvam bulbul:v3</span>
+        <span class="pill pill-tts">streaming</span>
+      </div>
+    </div>
+
+    <div style="background:#0d1f0d;border:1px solid #166534;border-radius:12px;padding:16px">
+      <div style="font-size:1.4rem;margin-bottom:6px">🔁</div>
+      <div style="font-size:0.75rem;font-weight:700;color:#4ade80;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">5 · Session Mgmt</div>
+      <div style="font-size:0.75rem;color:#64748b;line-height:1.6">
+        Conversation state across turns, graceful error recovery, call timeout, barge-in support (interrupt agent mid-speech).
+      </div>
+      <div style="margin-top:10px">
+        <span class="pill pill-lk">LiveKit AgentSession</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- What MVP must handle table -->
+  <h3 style="font-size:1rem;font-weight:700;color:#94a3b8;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #1e293b">
+    What the MVP agent must handle reliably
+  </h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px">
+
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+      <div style="background:#0c1a0c;padding:10px 16px;font-size:0.75rem;font-weight:700;color:#4ade80;border-bottom:1px solid #14532d">
+        ✓ Must-Have Behaviours
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#4ade80;font-size:0.8rem;flex-shrink:0">01</span>
+          <div style="font-size:0.78rem;color:#94a3b8;line-height:1.5">
+            <strong style="color:#e2e8f0">Happy path works end-to-end</strong><br>
+            Caller speaks → agent understands → collects data → confirms → closes call.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#4ade80;font-size:0.8rem;flex-shrink:0">02</span>
+          <div style="font-size:0.78rem;color:#94a3b8;line-height:1.5">
+            <strong style="color:#e2e8f0">Handles "I didn't understand"</strong><br>
+            Agent re-asks politely (max 2 retries) before graceful fallback.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#4ade80;font-size:0.8rem;flex-shrink:0">03</span>
+          <div style="font-size:0.78rem;color:#94a3b8;line-height:1.5">
+            <strong style="color:#e2e8f0">Barge-in (caller can interrupt)</strong><br>
+            Agent stops speaking immediately when caller starts talking.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#4ade80;font-size:0.8rem;flex-shrink:0">04</span>
+          <div style="font-size:0.78rem;color:#94a3b8;line-height:1.5">
+            <strong style="color:#e2e8f0">Silence timeout</strong><br>
+            After 8–10s silence, agent prompts; after 20s, call ends gracefully.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#4ade80;font-size:0.8rem;flex-shrink:0">05</span>
+          <div style="font-size:0.78rem;color:#94a3b8;line-height:1.5">
+            <strong style="color:#e2e8f0">Out-of-scope deflection</strong><br>
+            Agent politely declines topics outside its task and re-steers.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#4ade80;font-size:0.8rem;flex-shrink:0">06</span>
+          <div style="font-size:0.78rem;color:#94a3b8;line-height:1.5">
+            <strong style="color:#e2e8f0">Single confirmed output</strong><br>
+            At minimum: a reference number or confirmation SMS triggers downstream.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+      <div style="background:#1a0c0c;padding:10px 16px;font-size:0.75rem;font-weight:700;color:#f87171;border-bottom:1px solid #450a0a">
+        ✗ NOT required in MVP
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#f87171;font-size:0.8rem;flex-shrink:0">—</span>
+          <div style="font-size:0.78rem;color:#64748b;line-height:1.5">
+            <strong style="color:#94a3b8">Real-time CRM write-back</strong><br>
+            Log to a Google Sheet or simple DB first. CRM API comes later.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#f87171;font-size:0.8rem;flex-shrink:0">—</span>
+          <div style="font-size:0.78rem;color:#64748b;line-height:1.5">
+            <strong style="color:#94a3b8">Outbound calling</strong><br>
+            Inbound only is a complete product. Outbound needs SIP + dialer logic.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#f87171;font-size:0.8rem;flex-shrink:0">—</span>
+          <div style="font-size:0.78rem;color:#64748b;line-height:1.5">
+            <strong style="color:#94a3b8">Live dashboard with real data</strong><br>
+            Mock data UI is fine. Ship the working agent first.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#f87171;font-size:0.8rem;flex-shrink:0">—</span>
+          <div style="font-size:0.78rem;color:#64748b;line-height:1.5">
+            <strong style="color:#94a3b8">Supervisor barge / whisper</strong><br>
+            Advanced telephony feature. Not needed to validate the concept.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#f87171;font-size:0.8rem;flex-shrink:0">—</span>
+          <div style="font-size:0.78rem;color:#64748b;line-height:1.5">
+            <strong style="color:#94a3b8">Analytics &amp; reporting</strong><br>
+            Call logs with timestamp + outcome are enough. Dashboards come after.
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;align-items:flex-start">
+          <span style="color:#f87171;font-size:0.8rem;flex-shrink:0">—</span>
+          <div style="font-size:0.78rem;color:#64748b;line-height:1.5">
+            <strong style="color:#94a3b8">Fine-tuned / custom LLM</strong><br>
+            Claude/GPT with a good system prompt beats a bad fine-tune every time.
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Latency targets -->
+  <h3 style="font-size:1rem;font-weight:700;color:#94a3b8;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #1e293b">
+    MVP Latency Targets (end-to-end per turn)
+  </h3>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:32px">
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:#4ade80">70ms</div>
+      <div style="font-size:0.7rem;color:#475569;margin-top:4px">VAD endpointing</div>
+      <div style="font-size:0.65rem;color:#1e293b;margin-top:2px">detect speech end</div>
+    </div>
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:#60a5fa">400ms</div>
+      <div style="font-size:0.7rem;color:#475569;margin-top:4px">STT transcript</div>
+      <div style="font-size:0.65rem;color:#1e293b;margin-top:2px">speech → text</div>
+    </div>
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:#fbbf24">800ms</div>
+      <div style="font-size:0.7rem;color:#475569;margin-top:4px">LLM first token</div>
+      <div style="font-size:0.65rem;color:#1e293b;margin-top:2px">text → reply start</div>
+    </div>
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:10px;padding:14px;text-align:center">
+      <div style="font-size:1.6rem;font-weight:800;color:#f87171">&lt;2s</div>
+      <div style="font-size:0.7rem;color:#475569;margin-top:4px">Total TTFA</div>
+      <div style="font-size:0.65rem;color:#1e293b;margin-top:2px">time-to-first-audio</div>
+    </div>
+  </div>
+
+  <!-- MVP checklist -->
+  <h3 style="font-size:1rem;font-weight:700;color:#94a3b8;margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid #1e293b">
+    MVP Launch Checklist — SpeedCare Agent
+  </h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+      <div style="background:#0c1a2e;padding:8px 14px;font-size:0.7rem;font-weight:700;color:#60a5fa;letter-spacing:1px">AGENT CORE</div>
+      <ul style="list-style:none;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>GreetingAgent working</li>
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>BookingAgent (all 3 intents)</li>
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>ConfirmationAgent + SC-XXXX ref</li>
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>Multilingual (Tamil/Hindi/English)</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Retry on misunderstanding (2x)</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Silence timeout handler</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Out-of-scope deflection</li>
+      </ul>
+    </div>
+
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+      <div style="background:#1a1200;padding:8px 14px;font-size:0.7rem;font-weight:700;color:#fbbf24;letter-spacing:1px">TELEPHONY</div>
+      <ul style="list-style:none;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>LiveKit room + WebRTC</li>
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>VAD + noise cancellation</li>
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>Deployed on Docker</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>SIP trunk (Exotel/Plivo)</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Real phone number assigned</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Call recording (audio + transcript)</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Concurrent call load test</li>
+      </ul>
+    </div>
+
+    <div style="background:#0f1117;border:1px solid #1e293b;border-radius:12px;overflow:hidden">
+      <div style="background:#0d1f0d;padding:8px 14px;font-size:0.7rem;font-weight:700;color:#4ade80;letter-spacing:1px">DATA &amp; OPS</div>
+      <ul style="list-style:none;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>Pytest agent test suite</li>
+        <li style="font-size:0.75rem;color:#94a3b8;display:flex;gap:8px"><span style="color:#4ade80">✓</span>Environment vars secured</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Structured call log to DB/Sheet</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Error alerting (Sentry / Slack)</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Latency monitoring per turn</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>10-call real-world pilot</li>
+        <li style="font-size:0.75rem;color:#64748b;display:flex;gap:8px"><span style="color:#854d0e">○</span>Prompt tuning from pilot data</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- Minimal stack box -->
+  <div style="margin-top:24px;background:linear-gradient(135deg,#0c1a2e,#0d1f0d,#1a1200);border:1px solid #334155;border-radius:14px;padding:24px">
+    <div style="font-size:0.8rem;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Minimal Stack to Ship MVP</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      <div style="font-size:0.78rem;color:#64748b;line-height:1.8">
+        <div style="color:#60a5fa;font-weight:600;margin-bottom:4px">Audio Layer</div>
+        LiveKit Cloud (free tier)<br>
+        Silero VAD (bundled)<br>
+        LiveKit Noise Cancel (bundled)
+      </div>
+      <div style="font-size:0.78rem;color:#64748b;line-height:1.8">
+        <div style="color:#c084fc;font-weight:600;margin-bottom:4px">AI Layer</div>
+        Sarvam saaras:v3 (STT)<br>
+        Claude Haiku-4-5 (LLM)<br>
+        Sarvam bulbul:v3 (TTS)
+      </div>
+      <div style="font-size:0.78rem;color:#64748b;line-height:1.8">
+        <div style="color:#4ade80;font-weight:600;margin-bottom:4px">Infra Layer</div>
+        Single Docker container<br>
+        .env for secrets<br>
+        Google Sheet for call logs (quick start)
+      </div>
+    </div>
+    <div style="margin-top:16px;padding-top:14px;border-top:1px solid #1e293b;font-size:0.75rem;color:#475569;line-height:1.6">
+      <strong style="color:#94a3b8">Rule:</strong> Do not add a component to the MVP stack unless removing it breaks the core call flow.
+      Every extra service is a new failure point. Keep it lean until the pilot proves value.
+    </div>
+  </div>
+
+</div>
+
+<p style="text-align:center;color:#1e293b;font-size:0.75rem;margin-top:48px">
+  SpeedCare Voice Agent · Architecture Diagram · Generated 2026-03-25
+</p>
+
+</body>
+</html>

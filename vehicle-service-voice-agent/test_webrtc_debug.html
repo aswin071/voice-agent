@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeedCare Voice Agent - DEBUG MODE</title>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.0.0/dist/livekit-client.umd.js"></script>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+        .container { max-width: 900px; margin: 0 auto; }
+        h1 { color: #4ec9b0; }
+        .debug-box {
+            background: #252526; border: 1px solid #3e3e42;
+            border-radius: 4px; padding: 15px; margin: 10px 0;
+            max-height: 300px; overflow-y: auto;
+        }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid #3e3e42; font-size: 12px; }
+        .log-time { color: #808080; margin-right: 10px; }
+        .log-info { color: #4ec9b0; }
+        .log-error { color: #f48771; }
+        .log-warn { color: #dcdcaa; }
+        input, select, button {
+            padding: 10px; margin: 5px 0; width: 100%;
+            background: #3c3c3c; color: #d4d4d4; border: 1px solid #555;
+            border-radius: 4px;
+        }
+        button { background: #0e639c; cursor: pointer; }
+        button:hover { background: #1177bb; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .section { margin: 20px 0; }
+        .label { color: #9cdcfe; font-weight: bold; }
+        .token-box {
+            background: #1e1e1e; border: 1px solid #555;
+            padding: 10px; font-size: 11px; word-break: break-all;
+            max-height: 150px; overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚗 SpeedCare Voice Agent - DEBUG MODE</h1>
+
+        <div class="section">
+            <div class="label">Step 1: Enter Room Name (from dispatch)</div>
+            <input type="text" id="roomName" placeholder="e.g., room-U3bXa2Spj7dG" />
+
+            <div class="label">Step 2: Your Identity</div>
+            <input type="text" id="identity" value="caller-test" />
+
+            <button id="connectBtn" onclick="connect()">1. Get Token & Connect</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+        </div>
+
+        <div class="section">
+            <div class="label">Debug Log:</div>
+            <div class="debug-box" id="debugLog"></div>
+        </div>
+
+        <div class="section">
+            <div class="label">Token (decoded):</div>
+            <div class="token-box" id="tokenBox">No token yet</div>
+        </div>
+
+        <div class="section">
+            <div class="label">Connection State:</div>
+            <div id="connState">Not connected</div>
+        </div>
+    </div>
+
+    <script>
+        const LIVEKIT_URL = 'wss://ruka-voice-agent-rim8gdnh.livekit.cloud';
+        let room = null;
+        let localTrack = null;
+
+        function log(msg, type = 'info') {
+            const time = new Date().toLocaleTimeString();
+            const container = document.getElementById('debugLog');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-time">${time}</span><span class="log-${type}">${msg}</span>`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${msg}`);
+        }
+
+        function decodeJWT(token) {
+            try {
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                return JSON.parse(jsonPayload);
+            } catch (e) {
+                return { error: e.message };
+            }
+        }
+
+        async function getToken(roomName, identity) {
+            log(`Requesting token for room: ${roomName}, identity: ${identity}`);
+
+            try {
+                const response = await fetch('http://localhost:8000/api/v1/auth/livekit-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        call_sid: roomName,
+                        participant_identity: identity,
+                        ttl_seconds: 3600
+                    })
+                });
+
+                log(`Token endpoint status: ${response.status}`);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+                log('Token received successfully');
+
+                // Display decoded token
+                const token = data.data.token;
+                const decoded = decodeJWT(token);
+                document.getElementById('tokenBox').innerHTML = `
+                    <strong>Raw:</strong> ${token.substring(0, 50)}...<br><br>
+                    <strong>Decoded:</strong><pre>${JSON.stringify(decoded, null, 2)}</pre>
+                `;
+
+                // Check token validity
+                if (decoded.exp) {
+                    const expDate = new Date(decoded.exp * 1000);
+                    const now = new Date();
+                    log(`Token expires: ${expDate.toISOString()}`);
+                    log(`Token valid: ${expDate > now}`);
+                }
+
+                if (decoded.sub) {
+                    log(`Token subject: ${decoded.sub}`);
+                }
+
+                return token;
+            } catch (e) {
+                log(`Token fetch error: ${e.message}`, 'error');
+                throw e;
+            }
+        }
+
+        async function connect() {
+            const roomName = document.getElementById('roomName').value.trim();
+            const identity = document.getElementById('identity').value.trim();
+
+            if (!roomName) {
+                alert('Enter room name!');
+                return;
+            }
+
+            document.getElementById('connectBtn').disabled = true;
+            log('=== STARTING CONNECTION ===');
+            log(`LiveKit URL: ${LIVEKIT_URL}`);
+            log(`Room: ${roomName}`);
+
+            try {
+                // Step 1: Get token
+                log('Step 1: Fetching token...');
+                const token = await getToken(roomName, identity);
+
+                // Step 2: Create room
+                log('Step 2: Creating LiveKit Room object...');
+                room = new LivekitClient.Room({
+                    adaptiveStream: true,
+                    dynacast: true,
+                });
+
+                // Step 3: Set up event handlers BEFORE connecting
+                log('Step 3: Setting up event handlers...');
+
+                room.on('connected', () => {
+                    log('✓ Room connected!', 'info');
+                    document.getElementById('connState').innerHTML = '<span style="color: #4ec9b0">CONNECTED</span>';
+                    document.getElementById('disconnectBtn').disabled = false;
+                });
+
+                room.on('disconnected', (reason) => {
+                    log(`✗ Room disconnected: ${reason || 'no reason given'}`, 'error');
+                    document.getElementById('connState').innerHTML = '<span style="color: #f48771">DISCONNECTED</span>';
+                    document.getElementById('connectBtn').disabled = false;
+                });
+
+                room.on('connectionStateChanged', (state) => {
+                    log(`Connection state changed: ${state}`);
+                });
+
+                room.on('mediaDeviceError', (e) => {
+                    log(`Media device error: ${e.message}`, 'error');
+                });
+
+                room.on('signalResuming', () => {
+                    log('Signal resuming...');
+                });
+
+                room.on('signalResumed', () => {
+                    log('Signal resumed');
+                });
+
+                room.on('signalReconnecting', (attempt) => {
+                    log(`Signal reconnecting... attempt ${attempt}`, 'warn');
+                });
+
+                room.on('participantConnected', (p) => {
+                    log(`Participant joined: ${p.identity}`);
+                });
+
+                room.on('participantDisconnected', (p) => {
+                    log(`Participant left: ${p.identity}`);
+                });
+
+                room.on('trackSubscribed', (track, pub, participant) => {
+                    log(`Track subscribed: ${track.kind} from ${participant.identity}`);
+                    if (track.kind === 'audio') {
+                        const el = track.attach();
+                        el.autoplay = true;
+                        document.body.appendChild(el);
+                    }
+                });
+
+                // Step 4: Connect
+                log('Step 4: Connecting to LiveKit...');
+                log(`Using URL: ${LIVEKIT_URL}`);
+
+                try {
+                    await room.connect(LIVEKIT_URL, token);
+                    log('✓ WebSocket connection established');
+                } catch (connErr) {
+                    log(`Connection failed: ${connErr.message}`, 'error');
+                    log(`Error type: ${connErr.constructor.name}`, 'error');
+                    if (connErr.message.includes('401')) {
+                        log('ERROR: Unauthorized - token is invalid or expired', 'error');
+                    } else if (connErr.message.includes('404')) {
+                        log('ERROR: Room not found', 'error');
+                    }
+                    throw connErr;
+                }
+
+                // Step 5: Enable microphone
+                log('Step 5: Enabling microphone...');
+
+                // Detailed debugging
+                log(`Protocol: ${window.location.protocol}`);
+                log(`Host: ${window.location.host}`);
+                log(`LivekitClient exists: ${typeof LivekitClient !== 'undefined'}`);
+                log(`navigator.mediaDevices exists: ${typeof navigator.mediaDevices !== 'undefined'}`);
+
+                if (typeof navigator.mediaDevices === 'undefined') {
+                    log('ERROR: navigator.mediaDevices is undefined', 'error');
+                    log('This usually means:', 'error');
+                    log('1. Not using HTTPS (except localhost)', 'error');
+                    log('2. Browser is blocking insecure content', 'error');
+                    log('3. Try using Chrome with http://localhost:3000', 'error');
+                    throw new Error('mediaDevices not available');
+                }
+
+                try {
+                    log('Requesting microphone via getUserMedia...');
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    log('✓ Microphone permission granted');
+                    stream.getTracks().forEach(t => t.stop()); // Stop test stream
+
+                    log('Creating LiveKit audio track...');
+                    localTrack = await LivekitClient.createLocalAudioTrack();
+                    log('✓ LiveKit audio track created');
+
+                    await room.localParticipant.publishTrack(localTrack);
+                    log('✓ Audio track published to room');
+                } catch (micErr) {
+                    log(`Microphone error: ${micErr.name} - ${micErr.message}`, 'error');
+                    if (micErr.name === 'NotAllowedError') {
+                        log('You denied microphone permission. Please:', 'error');
+                        log('1. Click the lock icon in browser address bar', 'error');
+                        log('2. Set Microphone to "Allow"', 'error');
+                        log('3. Refresh the page', 'error');
+                    } else if (micErr.name === 'NotFoundError') {
+                        log('No microphone found. Please connect a microphone.', 'error');
+                    } else if (micErr.name === 'NotReadableError') {
+                        log('Microphone is in use by another application.', 'error');
+                    }
+                }
+
+                log('=== CONNECTION COMPLETE ===');
+
+            } catch (e) {
+                log(`FATAL ERROR: ${e.message}`, 'error');
+                console.error(e);
+                document.getElementById('connectBtn').disabled = false;
+            }
+        }
+
+        async function disconnect() {
+            log('Disconnecting...');
+            if (localTrack) {
+                localTrack.stop();
+                localTrack = null;
+            }
+            if (room) {
+                await room.disconnect();
+                room = null;
+            }
+            log('Disconnected');
+            document.getElementById('connectBtn').disabled = false;
+            document.getElementById('disconnectBtn').disabled = true;
+        }
+    </script>
+</body>
+</html>

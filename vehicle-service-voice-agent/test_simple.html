@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Voice Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.0.0/dist/livekit-client.umd.js"></script>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 600px; margin: 0 auto; }
+        .box { border: 1px solid #ccc; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .error { background: #fee; color: #c00; }
+        .success { background: #efe; color: #0c0; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>SpeedCare - Simple Voice Test</h1>
+
+    <div class="box">
+        <h3>1. Check Browser Support</h3>
+        <button onclick="checkSupport()">Check Support</button>
+        <div id="supportResult"></div>
+    </div>
+
+    <div class="box">
+        <h3>2. Test Microphone (Native)</h3>
+        <button onclick="testMic()">Test Microphone</button>
+        <div id="micResult"></div>
+    </div>
+
+    <div class="box">
+        <h3>3. Connect to LiveKit</h3>
+        <input type="text" id="roomName" placeholder="Room name from dispatch" style="width: 100%; padding: 8px; margin-bottom: 10px;">
+        <button onclick="connect()">Connect</button>
+        <div id="connectResult"></div>
+    </div>
+
+    <script>
+        const LIVEKIT_URL = 'wss://ruka-voice-agent-rim8gdnh.livekit.cloud';
+
+        function log(id, msg, isError = false) {
+            const el = document.getElementById(id);
+            el.innerHTML += `<div class="${isError ? 'error' : ''}">${new Date().toLocaleTimeString()}: ${msg}</div>`;
+        }
+
+        function checkSupport() {
+            document.getElementById('supportResult').innerHTML = '';
+            log('supportResult', 'Protocol: ' + window.location.protocol);
+            log('supportResult', 'Host: ' + window.location.host);
+            log('supportResult', 'Secure context: ' + (window.isSecureContext ? 'YES' : 'NO'));
+            log('supportResult', 'navigator.mediaDevices: ' + (navigator.mediaDevices ? 'YES' : 'NO'));
+            log('supportResult', 'LivekitClient: ' + (typeof LivekitClient !== 'undefined' ? 'YES' : 'NO'));
+
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                log('supportResult', '✓ Browser supports getUserMedia');
+            } else {
+                log('supportResult', '✗ Browser does NOT support getUserMedia', true);
+                log('supportResult', 'Try Chrome with http://localhost:3000', true);
+            }
+        }
+
+        async function testMic() {
+            document.getElementById('micResult').innerHTML = '';
+
+            try {
+                log('micResult', 'Requesting microphone...');
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log('micResult', '✓ Microphone access granted!');
+
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                source.connect(analyser);
+
+                log('micResult', 'Listening to microphone (speak to see activity)...');
+
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                function checkVolume() {
+                    analyser.getByteFrequencyData(dataArray);
+                    const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+                    if (average > 10) {
+                        log('micResult', `Audio level: ${Math.round(average)}`);
+                    }
+                    requestAnimationFrame(checkVolume);
+                }
+                checkVolume();
+
+            } catch (err) {
+                log('micResult', '✗ Error: ' + err.name + ' - ' + err.message, true);
+                if (err.name === 'NotAllowedError') {
+                    log('micResult', 'You denied permission. Check browser settings.', true);
+                }
+            }
+        }
+
+        async function getToken(room, identity) {
+            const res = await fetch('http://localhost:8000/api/v1/auth/livekit-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    call_sid: room,
+                    participant_identity: identity,
+                    ttl_seconds: 3600
+                })
+            });
+            const data = await res.json();
+            return data.data.token;
+        }
+
+        async function connect() {
+            const roomName = document.getElementById('roomName').value.trim();
+            if (!roomName) {
+                alert('Enter room name');
+                return;
+            }
+
+            document.getElementById('connectResult').innerHTML = '';
+            log('connectResult', 'Connecting to ' + roomName);
+
+            try {
+                // Get mic first
+                log('connectResult', 'Getting microphone...');
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log('connectResult', '✓ Microphone ready');
+
+                // Get token
+                log('connectResult', 'Getting token...');
+                const token = await getToken(roomName, 'caller-' + Date.now());
+                log('connectResult', '✓ Token received');
+
+                // Connect to LiveKit
+                log('connectResult', 'Connecting to LiveKit...');
+                const room = new LivekitClient.Room();
+
+                room.on('connected', () => {
+                    log('connectResult', '✓ CONNECTED!');
+                });
+
+                room.on('disconnected', () => {
+                    log('connectResult', 'Disconnected');
+                });
+
+                room.on('participantConnected', (p) => {
+                    log('connectResult', 'Agent joined: ' + p.identity);
+                });
+
+                await room.connect(LIVEKIT_URL, token);
+                log('connectResult', 'Room connected, publishing audio...');
+
+                // Create track from stream
+                const audioTrack = stream.getAudioTracks()[0];
+                const track = new LivekitClient.LocalAudioTrack(audioTrack);
+                await room.localParticipant.publishTrack(track);
+                log('connectResult', '✓ Audio published! You can speak now.');
+
+            } catch (err) {
+                log('connectResult', '✗ ' + err.name + ': ' + err.message, true);
+                console.error(err);
+            }
+        }
+    </script>
+</body>
+</html>

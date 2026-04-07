@@ -1,0 +1,35 @@
+# Core Framework
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+python-dotenv~=1.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.0
+asyncpg>=0.29.0
+alembic>=1.13.0
+
+# Redis
+redis>=5.0.0
+
+# HTTP Client
+httpx>=0.26.0
+
+# Authentication
+pyjwt>=2.8.0
+bcrypt>=4.1.0
+
+# LiveKit
+livekit>=1.0
+livekit-agents[openai,deepgram,cartesia,silero,turn_detector]~=1.0
+livekit-plugins-noise-cancellation~=0.2
+
+# Observability
+structlog>=24.1.0
+prometheus-client>=0.19.0
+sentry-sdk>=1.40.0
+
+# Utilities
+jinja2>=3.1.0
+python-multipart>=0.0.9
