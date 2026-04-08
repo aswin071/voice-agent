@@ -87,7 +87,7 @@ class SarvamSTT(stt.STT):
             detected_lang = data.get("language_code", lang)
             confidence = data.get("confidence", 0.9)
 
-            logger.info("sarvam_stt_transcript", extra={"text": transcript, "lang": detected_lang})
+            logger.info("[STT] transcript=%r lang=%s conf=%.2f", transcript, detected_lang, confidence)
 
             return stt.SpeechEvent(
                 type=stt.SpeechEventType.FINAL_TRANSCRIPT,
@@ -100,7 +100,7 @@ class SarvamSTT(stt.STT):
                 ],
             )
         except Exception as e:
-            logger.error("sarvam_stt_error", extra={"error": str(e)})
+            logger.error("[STT] sarvam_stt_error: %s", str(e), exc_info=True)
             return stt.SpeechEvent(
                 type=stt.SpeechEventType.FINAL_TRANSCRIPT,
                 alternatives=[

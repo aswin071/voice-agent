@@ -143,20 +143,17 @@ class _SarvamChunkedStream(tts.ChunkedStream):
                 json=payload,
             )
         except Exception as e:
-            logger.error("sarvam_tts_request_failed", extra={"error": str(e)})
+            logger.error("[TTS] request failed: %s", str(e), exc_info=True)
             raise
 
         if resp.status_code != 200:
-            logger.error(
-                "sarvam_tts_http_error",
-                extra={"status": resp.status_code, "body": resp.text[:300]},
-            )
+            logger.error("[TTS] HTTP %d: %s", resp.status_code, resp.text[:300])
             resp.raise_for_status()
 
         data = resp.json()
         audios = data.get("audios") or []
         if not audios:
-            logger.error("sarvam_tts_no_audio", extra={"keys": list(data.keys())})
+            logger.error("[TTS] no audio in response, keys=%s", list(data.keys()))
             return
 
         request_id = data.get("request_id", "sarvam-tts")
@@ -176,10 +173,8 @@ class _SarvamChunkedStream(tts.ChunkedStream):
 
         output_emitter.flush()
         logger.info(
-            "sarvam_tts_synthesized",
-            extra={
-                "chars": len(self._input_text),
-                "audio_bytes": sum(len(base64.b64decode(a)) for a in audios),
-                "request_id": request_id,
-            },
+            "[TTS] synthesized chars=%d audio_bytes=%d request_id=%s",
+            len(self._input_text),
+            sum(len(base64.b64decode(a)) for a in audios),
+            request_id,
         )

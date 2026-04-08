@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # Anthropic
     ANTHROPIC_API_KEY: str = ""
-    LLM_MODEL: str = "claude-haiku-4-5"
+    LLM_MODEL: str = "claude-haiku-4-5-20251001"
     LLM_TEMPERATURE: float = 0.3
     LLM_MAX_OUTPUT_TOKENS: int = 150
 
@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # SIP
     SIP_OUTBOUND_TRUNK_ID: str = ""
 
+    # CORS — comma-separated list of allowed origins
+    # Example: "https://app.speedcare.in,https://admin.speedcare.in"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+
     # App
     APP_NAME: str = "SpeedCare Voice Agent"
     WORKSHOP_ADDRESS: str = "SpeedCare, 45 Anna Salai, Chennai 600002"
@@ -64,6 +68,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env.local"
         case_sensitive = True
+        extra = "ignore"
 
 
 @lru_cache

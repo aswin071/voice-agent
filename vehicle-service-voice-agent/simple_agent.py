@@ -31,13 +31,13 @@ from livekit.agents import (
     Agent,
     AgentSession,
     JobContext,
-    RoomInputOptions,
     WorkerOptions,
     cli,
     llm,
 )
+from livekit.agents.voice.room_io import RoomOptions
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
-from livekit.plugins import noise_cancellation, silero
+from livekit.plugins import silero
 
 from agent_core.state_machine import ConversationalAgent
 from config import get_settings
@@ -150,7 +150,7 @@ class SpeedCareAgent(Agent):
         """
         transcript = self._latest_user_text(chat_ctx)
         if not transcript:
-            logger.warning("llm_node_called_with_empty_transcript")
+            logger.warning("[STT] empty transcript received — STT may have failed or caller was silent")
             return ""
 
         logger.info("[STT  << caller] %s   (state=%s)", transcript, self._state["agent_state"])
@@ -213,9 +213,37 @@ class SpeedCareAgent(Agent):
 
 
 async def entrypoint(ctx: JobContext) -> None:
-    logger.info("starting_agent", extra={"room": ctx.room.name})
+    logger.info("starting_agent room=%s", ctx.room.name)
     await ctx.connect()
     logger.info("connected_to_livekit")
+
+    # Diagnostic: log every participant and track event so we can see
+    # whether the user's audio is reaching the agent at all.
+    @ctx.room.on("participant_connected")
+    def on_participant_connected(p):
+        logger.info("[ROOM] participant_connected identity=%s", p.identity)
+
+    @ctx.room.on("participant_disconnected")
+    def on_participant_disconnected(p):
+        logger.info("[ROOM] participant_disconnected identity=%s", p.identity)
+
+    @ctx.room.on("track_subscribed")
+    def on_track_subscribed(track, pub, participant):
+        logger.info(
+            "[ROOM] track_subscribed kind=%s participant=%s track_sid=%s",
+            track.kind, participant.identity, track.sid,
+        )
+
+    @ctx.room.on("track_published")
+    def on_track_published(pub, participant):
+        logger.info(
+            "[ROOM] track_published kind=%s participant=%s muted=%s",
+            pub.kind, participant.identity, pub.muted,
+        )
+
+    # Log already-present participants (joined before agent)
+    for p in ctx.room.remote_participants.values():
+        logger.info("[ROOM] existing_participant identity=%s tracks=%d", p.identity, len(p.track_publications))
 
     # One DB session per call. The state machine uses it to persist bookings
     # and look up status. If the DB is unreachable the conversation still
@@ -241,13 +269,22 @@ async def entrypoint(ctx: JobContext) -> None:
 
     ctx.add_shutdown_callback(_shutdown)
 
-    # Language for this call. Defaults to English; override per worker run with
-    #   SPEEDCARE_LANG=ta python simple_agent.py dev
-    # Supported: en, ta, hi, ml. Once dispatch metadata is wired this will
-    # come from ctx.job.metadata instead of an env var.
-    lang = os.environ.get("SPEEDCARE_LANG", "en").lower()
-    if lang not in ("en", "ta", "hi", "ml"):
-        logger.warning("unsupported_lang_falling_back_to_en", extra={"lang": lang})
+    # Language for this call.
+    # Priority: job metadata (production/SIP) → env var (local dev) → default "en"
+    # In production, dispatch sets metadata like: {"language": "ta"}
+    _SUPPORTED_LANGS = ("en", "ta", "hi", "ml")
+    lang = "en"
+    if ctx.job and ctx.job.metadata:
+        try:
+            import json as _json
+            _meta = _json.loads(ctx.job.metadata)
+            lang = str(_meta.get("language", "en")).lower()
+        except Exception:
+            logger.warning("job_metadata_parse_failed, falling back to env/default")
+    if lang not in _SUPPORTED_LANGS:
+        lang = os.environ.get("SPEEDCARE_LANG", "en").lower()
+    if lang not in _SUPPORTED_LANGS:
+        logger.warning("unsupported_lang=%s, falling back to en", lang)
         lang = "en"
     logger.info("call_language=%s", lang)
 
@@ -258,24 +295,27 @@ async def entrypoint(ctx: JobContext) -> None:
     # Non-English speakers pause longer mid-sentence so we give them ~150ms more.
     silence = 0.4 if lang != "en" else 0.25
     session = AgentSession(
-        vad=silero.VAD.load(min_silence_duration=silence),
+        vad=silero.VAD.load(
+            min_silence_duration=silence,
+            activation_threshold=0.3,   # lower = more sensitive (default 0.5)
+        ),
         min_endpointing_delay=0.2,
         stt=SarvamSTT(language=lang),
         llm=_StubLLM(),
         tts=SarvamTTS(
             language=lang,
-            model="bulbul:v3",  # v3 = much more natural; different speaker pool from v2
-            pace=1.0,           # 1.0 = natural; 0.95 stretched audio and felt sluggish
+            model="bulbul:v3",
+            pace=1.0,
             enable_preprocessing=True,
         ),
     )
 
+    # noise_cancellation.BVCTelephony() is a paid LiveKit Cloud feature.
+    # Removed to avoid silently breaking audio input on accounts without it.
     await session.start(
         agent=agent,
         room=ctx.room,
-        room_input_options=RoomInputOptions(
-            noise_cancellation=noise_cancellation.BVCTelephony(),
-        ),
+        room_options=RoomOptions(),
     )
 
     logger.info("agent_ready")

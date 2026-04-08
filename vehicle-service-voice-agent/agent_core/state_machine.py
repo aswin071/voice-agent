@@ -503,6 +503,16 @@ class ConversationalAgent:
         start = time.monotonic()
 
         try:
+            body: dict = {
+                "model": settings.LLM_MODEL,
+                "max_tokens": settings.LLM_MAX_OUTPUT_TOKENS,
+                "temperature": settings.LLM_TEMPERATURE,
+                "system": system_blocks,
+                "messages": messages,
+            }
+            if tools:
+                body["tools"] = tools
+
             resp = await self.client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -510,21 +520,15 @@ class ConversationalAgent:
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
-                json={
-                    "model": settings.LLM_MODEL,
-                    "max_tokens": settings.LLM_MAX_OUTPUT_TOKENS,
-                    "temperature": settings.LLM_TEMPERATURE,
-                    "system": system_blocks,
-                    "messages": messages,
-                    "tools": tools if tools else None,
-                },
+                json=body,
                 timeout=8.0,
             )
             resp.raise_for_status()
             data = resp.json()
         except Exception as e:
             latency = int((time.monotonic() - start) * 1000)
-            logger.error("llm_call_failed", extra={"error": str(e)})
+            body_text = getattr(getattr(e, "response", None), "text", "")
+            logger.error("llm_call_failed: %s | anthropic_body: %s", str(e), body_text)
             return CLARIFICATION_MESSAGES.get(
                 "en", "Sorry, please try again."
             ), latency, []
