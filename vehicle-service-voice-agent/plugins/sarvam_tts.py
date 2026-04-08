@@ -25,18 +25,22 @@ from config import get_settings
 logger = logging.getLogger("speedcare.sarvam_tts")
 settings = get_settings()
 
-# Sarvam bulbul:v2 valid speakers (verified against API error response).
-# Mapped per language; same speaker pool serves all languages.
+# Sarvam bulbul:v3 speakers. v3 is the modern, much more natural model
+# (verified against the live API on 2026-04-08). v3 ships with a different
+# speaker pool than v2 — DO NOT mix v2 names like "anushka" with model="bulbul:v3"
+# or the API rejects with "Speaker X is not compatible with model bulbul:v3".
+#
+# Picked per language for warmth/conversational feel. Override per call with voice=...
 DEFAULT_VOICES = {
-    "ta": "anushka",
-    "hi": "anushka",
-    "en": "anushka",
-    "ml": "anushka",
-    "te": "anushka",
-    "kn": "anushka",
-    "mr": "anushka",
-    "gu": "anushka",
-    "bn": "anushka",
+    "ta": "priya",   # warm Tamil female
+    "hi": "priya",   # conversational Hindi female
+    "en": "priya",   # warm Indian-English female
+    "ml": "priya",   # warm Malayalam female
+    "te": "priya",
+    "kn": "priya",
+    "mr": "priya",
+    "gu": "priya",
+    "bn": "priya",
 }
 
 # Sarvam expects BCP-47 style language codes (en-IN, ta-IN, etc.)
@@ -65,8 +69,11 @@ class SarvamTTS(tts.TTS):
         language: str = "en",
         api_key: str | None = None,
         voice: str | None = None,
-        speed: float = 1.0,
-        model: str = "bulbul:v2",
+        pace: float = 0.95,
+        pitch: float = 0.0,
+        loudness: float = 1.3,
+        enable_preprocessing: bool = True,
+        model: str = "bulbul:v3",
         http_client: httpx.AsyncClient | None = None,
     ):
         super().__init__(
@@ -77,7 +84,14 @@ class SarvamTTS(tts.TTS):
         self._api_key = api_key or settings.SARVAM_API_KEY
         self._language = language
         self._voice = voice or DEFAULT_VOICES.get(language, "anushka")
-        self._speed = max(0.5, min(2.0, speed))
+        # Naturalness knobs — clamped to Sarvam's documented ranges.
+        self._pace = max(0.5, min(2.0, pace))
+        self._pitch = max(-0.75, min(0.75, pitch))
+        self._loudness = max(0.3, min(3.0, loudness))
+        # enable_preprocessing tells Sarvam to expand abbreviations, spell out
+        # numbers/dates/plate codes, and normalize punctuation. Without this
+        # the agent reads "TN09AK1234" and "₹500" as a robotic letter-stream.
+        self._preprocess = enable_preprocessing
         self._model = model
         self._client = http_client or httpx.AsyncClient(timeout=30)
 
@@ -111,7 +125,13 @@ class _SarvamChunkedStream(tts.ChunkedStream):
             "target_language_code": target_lang,
             "speaker": sarvam._voice,
             "model": sarvam._model,
+            "pace": sarvam._pace,
+            "enable_preprocessing": sarvam._preprocess,
         }
+        # bulbul:v3 rejects pitch/loudness with a 400. Only send them on v2.
+        if not sarvam._model.startswith("bulbul:v3"):
+            payload["pitch"] = sarvam._pitch
+            payload["loudness"] = sarvam._loudness
 
         try:
             resp = await sarvam._client.post(

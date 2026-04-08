@@ -19,6 +19,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 import uuid
 from typing import AsyncIterable
 
@@ -46,7 +48,11 @@ from plugins.sarvam_tts import SarvamTTS
 load_dotenv(dotenv_path=".env.local")
 settings = get_settings()
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger("speedcare.agent")
 
 
@@ -124,7 +130,7 @@ class SpeedCareAgent(Agent):
     async def on_enter(self) -> None:
         """Speak the opening greeting before the user has said anything."""
         greeting = GREETINGS.get(self._language, GREETINGS["en"])
-        logger.info("agent_greeting", extra={"text": greeting})
+        logger.info("[TTS  >> caller] %s", greeting)
         self._state["conversation_history"].append({"role": "assistant", "content": greeting})
         # `session.say` pushes the text directly through TTS, bypassing llm_node
         await self.session.say(greeting, allow_interruptions=True)
@@ -147,13 +153,28 @@ class SpeedCareAgent(Agent):
             logger.warning("llm_node_called_with_empty_transcript")
             return ""
 
-        logger.info("user_turn", extra={"text": transcript, "state": self._state["agent_state"]})
+        logger.info("[STT  << caller] %s   (state=%s)", transcript, self._state["agent_state"])
 
+        turn_start = time.monotonic()
         try:
             result = await self._brain.process_turn(transcript, self._state)
         except Exception:
             logger.exception("state_machine_error")
             return "Sorry, I had a problem. Could you please repeat that?"
+        turn_ms = int((time.monotonic() - turn_start) * 1000)
+
+        logger.info(
+            "[LLM  -> reply ] %s   (next=%s, intent=%s, tools=%s)",
+            result["response_text"],
+            result["next_agent_state"],
+            result["intent"],
+            result["tool_calls_made"],
+        )
+        logger.info(
+            "[LATENCY      ] llm=%dms  brain_turn=%dms  (TTS happens after this)",
+            result["llm_latency_ms"],
+            turn_ms,
+        )
 
         # Apply state mutations from the FSM result
         self._state["conversation_history"].append({"role": "user", "content": transcript})
@@ -163,19 +184,7 @@ class SpeedCareAgent(Agent):
         self._state["collected_slots"] = result["updated_slots"]
         self._state["turn_count"] += 1
 
-        logger.info(
-            "agent_reply",
-            extra={
-                "text": result["response_text"],
-                "next_state": result["next_agent_state"],
-                "intent": result["intent"],
-                "tools": result["tool_calls_made"],
-                "remaining": result["slots_remaining"],
-                "action": result["action"],
-                "latency_ms": result["llm_latency_ms"],
-            },
-        )
-
+        logger.info("[TTS  >> caller] %s", result["response_text"])
         return result["response_text"]
 
     @staticmethod
@@ -212,7 +221,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # and look up status. If the DB is unreachable the conversation still
     # flows; create_booking will simply report an error to the caller.
     db = async_session()
-    http = httpx.AsyncClient(timeout=5)
+    # Long-lived HTTP client shared across all Anthropic calls in this call.
+    # Connection reuse alone saves ~50-100ms per turn (TLS handshake + TCP).
+    # 8s timeout matches the LLM call's own timeout.
+    http = httpx.AsyncClient(
+        timeout=8.0,
+        limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=60.0),
+    )
 
     async def _shutdown():
         try:
@@ -226,18 +241,33 @@ async def entrypoint(ctx: JobContext) -> None:
 
     ctx.add_shutdown_callback(_shutdown)
 
-    agent = SpeedCareAgent(language="en", db=db, http_client=http)
+    # Language for this call. Defaults to English; override per worker run with
+    #   SPEEDCARE_LANG=ta python simple_agent.py dev
+    # Supported: en, ta, hi, ml. Once dispatch metadata is wired this will
+    # come from ctx.job.metadata instead of an env var.
+    lang = os.environ.get("SPEEDCARE_LANG", "en").lower()
+    if lang not in ("en", "ta", "hi", "ml"):
+        logger.warning("unsupported_lang_falling_back_to_en", extra={"lang": lang})
+        lang = "en"
+    logger.info("call_language=%s", lang)
 
+    agent = SpeedCareAgent(language=lang, db=db, http_client=http)
+
+    # Endpointing budget — every 100ms here is 100ms of perceived "agent is slow".
+    # 0.25s VAD silence + 0.2s endpoint delay = ~450ms wait after caller stops.
+    # Non-English speakers pause longer mid-sentence so we give them ~150ms more.
+    silence = 0.4 if lang != "en" else 0.25
     session = AgentSession(
-        # Tighter endpointing — default min_silence_duration is 0.55s, we
-        # drop to 0.35s. This shaves ~200ms off every turn at the cost of
-        # being slightly more eager to cut in. Bump back to 0.5 if you see
-        # mid-sentence cutoffs in Tamil/Hindi where pauses are longer.
-        vad=silero.VAD.load(min_silence_duration=0.35),
-        min_endpointing_delay=0.4,
-        stt=SarvamSTT(language="en"),
+        vad=silero.VAD.load(min_silence_duration=silence),
+        min_endpointing_delay=0.2,
+        stt=SarvamSTT(language=lang),
         llm=_StubLLM(),
-        tts=SarvamTTS(language="en"),
+        tts=SarvamTTS(
+            language=lang,
+            model="bulbul:v3",  # v3 = much more natural; different speaker pool from v2
+            pace=1.0,           # 1.0 = natural; 0.95 stretched audio and felt sluggish
+            enable_preprocessing=True,
+        ),
     )
 
     await session.start(

@@ -9,8 +9,10 @@ from datetime import date
 import httpx
 
 from agent_core.prompts import (
-    BOOKING_SYSTEM_PROMPT, CLARIFICATION_MESSAGES, CONFIRMATION_SYSTEM_PROMPT,
-    GREETING_SYSTEM_PROMPT,
+    BOOKING_SYSTEM_DYNAMIC, BOOKING_SYSTEM_PROMPT, BOOKING_SYSTEM_STATIC,
+    CLARIFICATION_MESSAGES,
+    CONFIRMATION_SYSTEM_DYNAMIC, CONFIRMATION_SYSTEM_PROMPT, CONFIRMATION_SYSTEM_STATIC,
+    GREETING_SYSTEM_DYNAMIC, GREETING_SYSTEM_PROMPT, GREETING_SYSTEM_STATIC,
 )
 from agent_core.tools import (
     AGENT_TOOLS, TOOL_HANDLERS, async_create_booking, async_lookup_booking_status,
@@ -157,7 +159,10 @@ class ConversationalAgent:
         http_client: httpx.AsyncClient | None = None,
         db=None,  # AsyncSession for database operations
     ):
-        self.client = http_client or httpx.AsyncClient(timeout=5)
+        self.client = http_client or httpx.AsyncClient(
+            timeout=8.0,
+            limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=60.0),
+        )
         self.db = db
 
     async def process_turn(
@@ -189,7 +194,7 @@ class ConversationalAgent:
             }
 
     async def _greeting_turn(self, transcript: str, session: dict, language: str) -> dict:
-        system_prompt = GREETING_SYSTEM_PROMPT.format(
+        system_dynamic = GREETING_SYSTEM_DYNAMIC.format(
             language=language,
             today=date.today().isoformat(),
         )
@@ -197,7 +202,9 @@ class ConversationalAgent:
         tools = [t for t in AGENT_TOOLS if t["name"] == "identify_intent"]
 
         response, latency, tool_calls = await self._call_llm(
-            system_prompt, session["conversation_history"], transcript, tools
+            "", session["conversation_history"], transcript, tools,
+            system_static=GREETING_SYSTEM_STATIC,
+            system_dynamic=system_dynamic,
         )
 
         intent = "booking_new"
@@ -229,7 +236,7 @@ class ConversationalAgent:
 
         missing = [s for s in REQUIRED_SLOTS.get(intent, []) if not collected_slots.get(s)]
 
-        system_prompt = BOOKING_SYSTEM_PROMPT.format(
+        system_dynamic = BOOKING_SYSTEM_DYNAMIC.format(
             language=language,
             intent=intent,
             slots_to_collect=json.dumps(missing),
@@ -237,12 +244,21 @@ class ConversationalAgent:
             today=date.today().isoformat(),
         )
 
-        tools = [t for t in AGENT_TOOLS if t["name"] in (
-            "normalize_vehicle_number", "validate_date", "check_service_type", "lookup_booking_status"
-        )]
+        # Tools tax — every tool we send is ~70-100 input tokens that Claude
+        # has to process every turn. The deterministic slot extractor above
+        # already handles vehicle_number / preferred_date / service_type, so
+        # for booking_new turns we send ZERO tools. lookup_booking_status is
+        # only meaningful for booking_status intent, so we gate it on intent.
+        # This drops ~300 input tokens per turn → ~150-300 ms saved.
+        if intent == "booking_status":
+            tools = [t for t in AGENT_TOOLS if t["name"] == "lookup_booking_status"]
+        else:
+            tools = []
 
         response, latency, tool_calls = await self._call_llm(
-            system_prompt, session["conversation_history"], transcript, tools
+            "", session["conversation_history"], transcript, tools,
+            system_static=BOOKING_SYSTEM_STATIC,
+            system_dynamic=system_dynamic,
         )
 
         # Process tool results to update slots
@@ -412,13 +428,15 @@ class ConversationalAgent:
 
         # Path 3: ambiguous transcript ("um", "what?") → ask the LLM for a
         # short re-confirmation prompt and stay in confirming state.
-        system_prompt = CONFIRMATION_SYSTEM_PROMPT.format(
+        system_dynamic = CONFIRMATION_SYSTEM_DYNAMIC.format(
             language=language,
             collected_slots=json.dumps(collected_slots),
             today=date.today().isoformat(),
         )
         response, latency, _ = await self._call_llm(
-            system_prompt, session["conversation_history"], transcript, []
+            "", session["conversation_history"], transcript, [],
+            system_static=CONFIRMATION_SYSTEM_STATIC,
+            system_dynamic=system_dynamic,
         )
         return {
             "response_text": response or "Could you please say yes or no?",
@@ -437,31 +455,50 @@ class ConversationalAgent:
         history: list[dict],
         current_transcript: str,
         tools: list[dict],
+        system_static: str | None = None,
+        system_dynamic: str | None = None,
     ) -> tuple[str, int, list[dict]]:
         """Call Claude Haiku once. Returns (response_text, latency_ms, tool_calls).
 
-        Latency optimizations applied here:
-        - Anthropic prompt caching: the system prompt is marked
-          cache_control=ephemeral so repeated turns reuse the cached
-          prompt tokens (~5x faster prompt processing, ~90% cheaper).
-        - No second LLM call: when the model returns only tool_use blocks
-          (no text), we synthesize a deterministic template reply from the
-          tool result instead of round-tripping back to Claude. This was
-          adding 600-1500 ms per slot-filling turn.
+        Two ways to pass the system prompt:
+          - legacy: single `system_prompt` string (no real prefix caching).
+          - preferred: `system_static` + `system_dynamic`. The static block
+            is byte-identical across turns and gets cache_control=ephemeral
+            so Anthropic prefix-caches it (cache reads are ~10% the cost AND
+            ~3-5x faster than fresh tokens). The dynamic block carries the
+            per-turn state and is NOT cached.
+
+        History window is small on purpose: we only keep the last 6 messages.
+        Each extra historical turn adds prompt tokens that the model has to
+        process, which directly maps to LLM latency. Slot-filling rarely
+        needs more than 2-3 turns of context.
         """
         messages = []
-        for h in history[-20:]:
+        for h in history[-6:]:
             messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": current_transcript})
 
-        # System prompt as a single cacheable block
-        system_blocks = [
-            {
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
+        # Build system blocks. Prefer the split version when caller provided it.
+        if system_static is not None and system_dynamic is not None:
+            system_blocks = [
+                {
+                    "type": "text",
+                    "text": system_static,
+                    "cache_control": {"type": "ephemeral"},
+                },
+                {
+                    "type": "text",
+                    "text": system_dynamic,
+                },
+            ]
+        else:
+            system_blocks = [
+                {
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ]
 
         start = time.monotonic()
 
@@ -481,7 +518,7 @@ class ConversationalAgent:
                     "messages": messages,
                     "tools": tools if tools else None,
                 },
-                timeout=5.0,
+                timeout=8.0,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -540,6 +577,383 @@ class ConversationalAgent:
             response_text = self._template_reply_for_tools(tool_calls)
 
         return response_text, latency, tool_calls
+
+    # ── Streaming path ──────────────────────────────────────────────────────
+    # Real LLM→TTS overlap. The LiveKit framework consumes whatever the
+    # Agent.llm_node generator yields, batches by sentence boundary, and
+    # hands each completed sentence to TTS. So as soon as Claude has emitted
+    # the first sentence, Sarvam starts synthesizing it while Claude is
+    # still generating sentence two. Time-to-first-audio drops by ~half the
+    # LLM gen time.
+
+    async def _stream_llm(
+        self,
+        out: dict,
+        *,
+        system_static: str,
+        system_dynamic: str,
+        history: list[dict],
+        current_transcript: str,
+        tools: list[dict],
+    ):
+        """Stream Claude SSE response, yielding text deltas as they arrive.
+
+        `out` is mutated in place with the final state once the stream ends:
+            out["text"]        full assembled response text
+            out["tool_calls"]  list of {name, input, result} dicts
+            out["latency_ms"]  total wall-clock for the LLM call
+        """
+        out["text"] = ""
+        out["tool_calls"] = []
+        out["latency_ms"] = 0
+
+        messages = [{"role": h["role"], "content": h["content"]} for h in history[-6:]]
+        messages.append({"role": "user", "content": current_transcript})
+
+        system_blocks = [
+            {"type": "text", "text": system_static, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": system_dynamic},
+        ]
+
+        payload = {
+            "model": settings.LLM_MODEL,
+            "max_tokens": settings.LLM_MAX_OUTPUT_TOKENS,
+            "temperature": settings.LLM_TEMPERATURE,
+            "system": system_blocks,
+            "messages": messages,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        start = time.monotonic()
+
+        # Track in-progress tool_use block (Anthropic streams each tool's
+        # JSON args as input_json_delta events; we accumulate then parse).
+        current_tool: dict | None = None
+        current_tool_json = ""
+
+        try:
+            async with self.client.stream(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": settings.ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json=payload,
+            ) as resp:
+                if resp.status_code != 200:
+                    body = await resp.aread()
+                    logger.error(
+                        "llm_stream_http_error",
+                        extra={"status": resp.status_code, "body": body[:300]},
+                    )
+                    out["latency_ms"] = int((time.monotonic() - start) * 1000)
+                    yield "Sorry, please say that again."
+                    return
+
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    raw = line[6:]
+                    if raw == "[DONE]":
+                        break
+                    try:
+                        evt = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+
+                    etype = evt.get("type")
+                    if etype == "content_block_start":
+                        block = evt.get("content_block", {})
+                        if block.get("type") == "tool_use":
+                            current_tool = {"name": block.get("name", ""), "input": {}, "result": {}}
+                            current_tool_json = ""
+                    elif etype == "content_block_delta":
+                        delta = evt.get("delta", {})
+                        dtype = delta.get("type")
+                        if dtype == "text_delta":
+                            text = delta.get("text", "")
+                            if text:
+                                out["text"] += text
+                                yield text
+                        elif dtype == "input_json_delta":
+                            current_tool_json += delta.get("partial_json", "")
+                    elif etype == "content_block_stop":
+                        if current_tool is not None:
+                            try:
+                                current_tool["input"] = (
+                                    json.loads(current_tool_json) if current_tool_json else {}
+                                )
+                            except json.JSONDecodeError:
+                                current_tool["input"] = {}
+                            handler = TOOL_HANDLERS.get(current_tool["name"])
+                            if handler:
+                                try:
+                                    current_tool["result"] = handler(current_tool["input"])
+                                except Exception as e:
+                                    current_tool["result"] = {"error": str(e)}
+                            out["tool_calls"].append(current_tool)
+                            current_tool = None
+                            current_tool_json = ""
+                    elif etype == "message_delta":
+                        usage = evt.get("usage", {})
+                        if usage:
+                            logger.info(
+                                "llm_stream_usage",
+                                extra={
+                                    "output_tokens": usage.get("output_tokens"),
+                                },
+                            )
+        except Exception as e:
+            logger.exception("llm_stream_failed")
+            out["latency_ms"] = int((time.monotonic() - start) * 1000)
+            if not out["text"]:
+                yield "Sorry, please say that again."
+            return
+
+        out["latency_ms"] = int((time.monotonic() - start) * 1000)
+
+        # If the model emitted only tool_use (no text), synthesize a short
+        # template reply so the caller hears *something*.
+        if not out["text"] and out["tool_calls"]:
+            tmpl = self._template_reply_for_tools(out["tool_calls"])
+            out["text"] = tmpl
+            yield tmpl
+
+    async def process_turn_stream(self, transcript: str, session: dict):
+        """Streaming dispatcher. Yields text chunks; mutates `session` in place
+        with the new agent_state, slots, intent, history, and turn_count once
+        the underlying generator finishes."""
+        state = session.get("agent_state", "greeting")
+        if state == "greeting":
+            async for chunk in self._greeting_turn_stream(transcript, session):
+                yield chunk
+        elif state == "collecting":
+            async for chunk in self._booking_turn_stream(transcript, session):
+                yield chunk
+        elif state == "confirming":
+            async for chunk in self._confirmation_turn_stream(transcript, session):
+                yield chunk
+        else:
+            text = "Thank you for calling SpeedCare. Goodbye!"
+            session["agent_state"] = "closing"
+            session["conversation_history"].append({"role": "user", "content": transcript})
+            session["conversation_history"].append({"role": "assistant", "content": text})
+            yield text
+
+    async def _greeting_turn_stream(self, transcript: str, session: dict):
+        language = session.get("language", "en")
+        system_dynamic = GREETING_SYSTEM_DYNAMIC.format(
+            language=language,
+            today=date.today().isoformat(),
+        )
+        # identify_intent is a sync tool the model can emit; deterministic
+        # default is booking_new and the prompt is tiny, so this is fine.
+        tools = [t for t in AGENT_TOOLS if t["name"] == "identify_intent"]
+
+        out: dict = {}
+        async for chunk in self._stream_llm(
+            out,
+            system_static=GREETING_SYSTEM_STATIC,
+            system_dynamic=system_dynamic,
+            history=session["conversation_history"],
+            current_transcript=transcript,
+            tools=tools,
+        ):
+            yield chunk
+
+        intent = "booking_new"
+        for tc in out["tool_calls"]:
+            if tc["name"] == "identify_intent":
+                intent = tc.get("result", {}).get("intent", "booking_new")
+
+        # Mutate session
+        session["intent"] = intent
+        session["agent_state"] = "collecting"
+        session["conversation_history"].append({"role": "user", "content": transcript})
+        session["conversation_history"].append({"role": "assistant", "content": out["text"]})
+        session["turn_count"] = session.get("turn_count", 0) + 1
+        logger.info("greet_stream_done", extra={"intent": intent, "ms": out["latency_ms"]})
+
+    async def _booking_turn_stream(self, transcript: str, session: dict):
+        language = session.get("language", "en")
+        intent = session.get("intent") or "booking_new"
+        collected_slots = dict(session.get("collected_slots", {}))
+
+        # Deterministic slot extraction (vehicle/date/service) BEFORE LLM call.
+        deterministic = extract_slots_from_transcript(transcript, collected_slots)
+        if deterministic:
+            collected_slots.update(deterministic)
+            logger.info("deterministic_slot_fill", extra={"slots": deterministic})
+
+        # Caller name from common phrases
+        if not collected_slots.get("caller_name"):
+            extracted_name = extract_caller_name(transcript)
+            if extracted_name:
+                collected_slots["caller_name"] = extracted_name
+
+        missing = [s for s in REQUIRED_SLOTS.get(intent, []) if not collected_slots.get(s)]
+
+        system_dynamic = BOOKING_SYSTEM_DYNAMIC.format(
+            language=language,
+            intent=intent,
+            slots_to_collect=json.dumps(missing),
+            collected_slots=json.dumps(collected_slots),
+            today=date.today().isoformat(),
+        )
+
+        # No tools for booking_new — see _booking_turn for the rationale.
+        if intent == "booking_status":
+            tools = [t for t in AGENT_TOOLS if t["name"] == "lookup_booking_status"]
+        else:
+            tools = []
+
+        out: dict = {}
+        async for chunk in self._stream_llm(
+            out,
+            system_static=BOOKING_SYSTEM_STATIC,
+            system_dynamic=system_dynamic,
+            history=session["conversation_history"],
+            current_transcript=transcript,
+            tools=tools,
+        ):
+            yield chunk
+
+        # lookup_booking_status is the only async tool that may need DB access
+        for tc in out["tool_calls"]:
+            if tc["name"] == "lookup_booking_status" and self.db:
+                try:
+                    input_args = tc.get("input", {})
+                    res = await async_lookup_booking_status(
+                        self.db,
+                        booking_ref=input_args.get("booking_ref"),
+                        vehicle_number=input_args.get(
+                            "vehicle_number", collected_slots.get("vehicle_number")
+                        ),
+                    )
+                    tc["result"] = res
+                    if input_args.get("vehicle_number") and res.get("valid"):
+                        collected_slots["vehicle_number"] = res.get("vehicle_number")
+                except Exception as e:
+                    logger.error("lookup_booking_status_error", extra={"error": str(e)})
+
+        remaining = [s for s in REQUIRED_SLOTS.get(intent, []) if not collected_slots.get(s)]
+        next_state = "confirming" if not remaining else "collecting"
+
+        # Mutate session
+        session["collected_slots"] = collected_slots
+        session["agent_state"] = next_state
+        session["conversation_history"].append({"role": "user", "content": transcript})
+        session["conversation_history"].append({"role": "assistant", "content": out["text"]})
+        session["turn_count"] = session.get("turn_count", 0) + 1
+        logger.info(
+            "booking_stream_done",
+            extra={
+                "next_state": next_state,
+                "remaining": remaining,
+                "ms": out["latency_ms"],
+            },
+        )
+
+    async def _confirmation_turn_stream(self, transcript: str, session: dict):
+        """Three paths: deny / affirm / ambiguous. Only ambiguous calls the LLM
+        — the other two yield a single deterministic chunk and skip Claude."""
+        language = session.get("language", "en")
+        collected_slots = dict(session.get("collected_slots", {}))
+
+        lower = transcript.lower().strip()
+        affirm_words = (
+            "yes", "yeah", "yep", "yup", "ok", "okay", "sure", "correct",
+            "confirm", "right", "perfect", "go ahead", "please do", "fine",
+            "ஆம்", "சரி", "हाँ", "हां", "ठीक", "अच्छा", "അതെ", "ശരി",
+        )
+        deny_words = (
+            "no", "nope", "wrong", "change", "modify", "cancel", "incorrect",
+            "இல்லை", "மாற்ற", "नहीं", "बदल", "गलत", "അല്ല",
+        )
+        is_affirm = any(w in lower for w in affirm_words)
+        is_deny = any(w in lower for w in deny_words)
+        if is_deny and not is_affirm:
+            pass
+        elif is_affirm:
+            is_deny = False
+
+        # Path 1 — deny: bounce to collecting, no LLM, no TTS streaming
+        if is_deny:
+            text = "No problem. What would you like to change?"
+            session["agent_state"] = "collecting"
+            session["conversation_history"].append({"role": "user", "content": transcript})
+            session["conversation_history"].append({"role": "assistant", "content": text})
+            yield text
+            return
+
+        # Path 2 — affirm: persist booking, deterministic reply, no LLM
+        if is_affirm:
+            if not self.db:
+                text = "Sorry, I couldn't save the booking just now. Please try again."
+                session["agent_state"] = "closing"
+                yield text
+                return
+            try:
+                booking_result = await async_create_booking(
+                    self.db,
+                    vehicle_number=collected_slots.get("vehicle_number"),
+                    service_type=collected_slots.get("service_type"),
+                    preferred_date=collected_slots.get("preferred_date"),
+                    caller_name=collected_slots.get("caller_name"),
+                    caller_number=None,
+                    call_session_id=str(session.get("call_session_id", "")),
+                )
+            except Exception:
+                logger.exception("create_booking_failed_stream")
+                text = "Sorry, I had a problem saving your booking. Please call back shortly."
+                session["agent_state"] = "closing"
+                yield text
+                return
+
+            if not booking_result.get("valid"):
+                logger.error("create_booking_invalid_stream", extra={"result": booking_result})
+                text = f"Sorry, I couldn't book that: {booking_result.get('error', 'unknown error')}"
+                session["agent_state"] = "closing"
+                yield text
+                return
+
+            ref = booking_result["booking_ref"]
+            slot = booking_result.get("appointment_slot", "")
+            appt_date = booking_result.get("appointment_date", collected_slots.get("preferred_date"))
+            text = (
+                f"Booked! Your reference is {ref}. "
+                f"We'll see you on {appt_date} at {slot}. Thank you for choosing SpeedCare!"
+            )
+            session["agent_state"] = "closing"
+            session["conversation_history"].append({"role": "user", "content": transcript})
+            session["conversation_history"].append({"role": "assistant", "content": text})
+            logger.info("booking_persisted_stream", extra={"booking_ref": ref})
+            yield text
+            return
+
+        # Path 3 — ambiguous: stream the LLM for a re-confirmation prompt
+        system_dynamic = CONFIRMATION_SYSTEM_DYNAMIC.format(
+            language=language,
+            collected_slots=json.dumps(collected_slots),
+            today=date.today().isoformat(),
+        )
+        out: dict = {}
+        async for chunk in self._stream_llm(
+            out,
+            system_static=CONFIRMATION_SYSTEM_STATIC,
+            system_dynamic=system_dynamic,
+            history=session["conversation_history"],
+            current_transcript=transcript,
+            tools=[],
+        ):
+            yield chunk
+
+        session["conversation_history"].append({"role": "user", "content": transcript})
+        session["conversation_history"].append({"role": "assistant", "content": out["text"]})
 
     @staticmethod
     def _template_reply_for_tools(tool_calls: list[dict]) -> str:

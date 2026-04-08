@@ -141,7 +141,13 @@ async def create_booking(
     booking_ref = await generate_booking_ref(db)
     duration = SERVICE_DURATIONS.get(service_type, 60)
 
+    # Generate the UUID up front instead of relying on SQLAlchemy's column
+    # default. The Booking row is referenced by BookingStatusHistory.booking_id
+    # and AuditLog.entity_id (both NOT NULL) before the session is flushed —
+    # if we let the default fire at flush time, those FK columns get NULL and
+    # Postgres rejects the whole transaction.
     booking = Booking(
+        id=uuid.uuid4(),
         booking_ref=booking_ref,
         vehicle_number=vehicle_number,
         service_type=service_type,

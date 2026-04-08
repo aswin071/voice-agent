@@ -19,18 +19,28 @@ settings = get_settings()
 @dataclass
 class SarvamSTTOptions:
     language: str = "ta"
-    model: str = "saaras:v3"
+    model: str = "saarika:v2.5"
 
 
 class SarvamSTT(stt.STT):
-    """Sarvam AI Speech-to-Text plugin for livekit-agents."""
+    """Sarvam AI Speech-to-Text plugin for livekit-agents.
 
-    def __init__(self, *, language: str = "ta", api_key: str | None = None):
+    Uses the dedicated transcription endpoint (`speech-to-text`) with
+    `saarika:v2.5` — the modern fast STT model. We do NOT use the
+    `speech-to-text-translate` endpoint because:
+      1. It forces output to English even when the caller speaks Tamil/Hindi,
+         so a prompt like "respond ONLY in Tamil" sees English input and
+         the agent ends up confused mid-call.
+      2. It is ~130 ms slower per turn on average.
+    """
+
+    def __init__(self, *, language: str = "ta", api_key: str | None = None, model: str = "saarika:v2.5"):
         super().__init__(
             capabilities=stt.STTCapabilities(streaming=False, interim_results=False),
         )
         self._api_key = api_key or settings.SARVAM_API_KEY
         self._language = language
+        self._model = model
         self._client = httpx.AsyncClient(timeout=10)
 
     async def _recognize_impl(
@@ -65,9 +75,9 @@ class SarvamSTT(stt.STT):
                     "file": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav"),
                 },
                 data={
-                    "language_code": lang,
-                    "model": "saaras:v3",
-                    "with_timestamps": "true",
+                    # saarika expects BCP-47 codes (ta-IN, hi-IN, ...). Map common short codes.
+                    "language_code": {"ta": "ta-IN", "hi": "hi-IN", "ml": "ml-IN", "en": "en-IN"}.get(lang, lang),
+                    "model": self._model,
                 },
             )
             resp.raise_for_status()

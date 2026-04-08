@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Sarvam AI
     SARVAM_API_KEY: str = ""
-    SARVAM_STT_URL: str = "https://api.sarvam.ai/speech-to-text-translate"
+    SARVAM_STT_URL: str = "https://api.sarvam.ai/speech-to-text"
     SARVAM_TTS_URL: str = "https://api.sarvam.ai/text-to-speech"
 
     # Anthropic

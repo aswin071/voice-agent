@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import timedelta
 
@@ -24,6 +25,13 @@ from db import get_db
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 settings = get_settings()
+logger = logging.getLogger("speedcare.api.auth")
+
+# Worker registers with this name in simple_agent.py / agent_worker.py.
+# Because the worker uses an explicit agent_name, LiveKit will NOT auto-dispatch
+# it to rooms — we have to create an AgentDispatch ourselves whenever we hand
+# out a participant token, otherwise the caller joins a room with no agent in it.
+LIVEKIT_AGENT_NAME = "speedcare-agent"
 
 
 @router.post("/login")
@@ -142,6 +150,49 @@ async def livekit_token(
         settings.LIVEKIT_API_SECRET,
         algorithm="HS256",
     )
+
+    # Create an AgentDispatch so the named worker actually joins this room.
+    # Without this the browser connects to an empty room and hears nothing —
+    # see plans/binary-swimming-lighthouse.md for the full root-cause writeup.
+    from livekit import api as lkapi
+
+    lk = lkapi.LiveKitAPI(
+        url=settings.LIVEKIT_URL,
+        api_key=settings.LIVEKIT_API_KEY,
+        api_secret=settings.LIVEKIT_API_SECRET,
+    )
+    try:
+        await lk.agent_dispatch.create_dispatch(
+            lkapi.CreateAgentDispatchRequest(
+                agent_name=LIVEKIT_AGENT_NAME,
+                room=body.call_sid,
+                metadata="",
+            )
+        )
+        logger.info(
+            "livekit_dispatch_created",
+            extra={"room": body.call_sid, "agent": LIVEKIT_AGENT_NAME},
+        )
+    except Exception as e:
+        # If a dispatch already exists for this (agent, room), LiveKit returns
+        # AlreadyExists — that's fine, the worker is already on its way.
+        msg = str(e).lower()
+        if "already" in msg or "exists" in msg:
+            logger.info(
+                "livekit_dispatch_already_exists",
+                extra={"room": body.call_sid, "agent": LIVEKIT_AGENT_NAME},
+            )
+        else:
+            logger.exception(
+                "livekit_dispatch_failed",
+                extra={"room": body.call_sid, "agent": LIVEKIT_AGENT_NAME},
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"agent dispatch failed: {e}",
+            )
+    finally:
+        await lk.aclose()
 
     return ResponseEnvelope(
         data={
