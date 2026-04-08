@@ -45,7 +45,7 @@ from db import async_session
 from plugins.sarvam_stt import SarvamSTT
 from plugins.sarvam_tts import SarvamTTS
 
-load_dotenv(dotenv_path=".env.local")
+load_dotenv(dotenv_path=".env.local", override=True)
 settings = get_settings()
 
 logging.basicConfig(
@@ -273,19 +273,27 @@ async def entrypoint(ctx: JobContext) -> None:
     # Priority: job metadata (production/SIP) → env var (local dev) → default "en"
     # In production, dispatch sets metadata like: {"language": "ta"}
     _SUPPORTED_LANGS = ("en", "ta", "hi", "ml")
-    lang = "en"
+    lang = None
+
+    # 1. Try job metadata (production/SIP path)
     if ctx.job and ctx.job.metadata:
         try:
             import json as _json
             _meta = _json.loads(ctx.job.metadata)
-            lang = str(_meta.get("language", "en")).lower()
+            lang = str(_meta.get("language", "")).lower() or None
         except Exception:
             logger.warning("job_metadata_parse_failed, falling back to env/default")
-    if lang not in _SUPPORTED_LANGS:
-        lang = os.environ.get("SPEEDCARE_LANG", "en").lower()
-    if lang not in _SUPPORTED_LANGS:
-        logger.warning("unsupported_lang=%s, falling back to en", lang)
+
+    # 2. Fall back to env var (local dev path)
+    if not lang:
+        lang = os.environ.get("SPEEDCARE_LANG", "").lower() or None
+
+    # 3. Final fallback
+    if not lang or lang not in _SUPPORTED_LANGS:
+        if lang:
+            logger.warning("unsupported_lang=%s, falling back to en", lang)
         lang = "en"
+
     logger.info("call_language=%s", lang)
 
     agent = SpeedCareAgent(language=lang, db=db, http_client=http)
@@ -305,7 +313,7 @@ async def entrypoint(ctx: JobContext) -> None:
         tts=SarvamTTS(
             language=lang,
             model="bulbul:v3",
-            pace=1.0,
+            pace=0.85 if lang != "en" else 1.0,  # slower for Indian languages = more natural
             enable_preprocessing=True,
         ),
     )

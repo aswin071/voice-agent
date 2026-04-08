@@ -23,6 +23,13 @@ from config import get_settings
 logger = logging.getLogger("speedcare.agent")
 settings = get_settings()
 
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ta": "Tamil",
+    "hi": "Hindi",
+    "ml": "Malayalam",
+}
+
 REQUIRED_SLOTS = {
     "booking_new": ["vehicle_number", "service_type", "preferred_date", "caller_name"],
     "booking_status": ["booking_ref_or_vehicle"],
@@ -171,7 +178,7 @@ class ConversationalAgent:
         session: dict,
     ) -> dict:
         state = session.get("agent_state", "greeting")
-        language = session.get("language", "ta")
+        language = LANGUAGE_NAMES.get(session.get("language", "ta"), "English")
         collected_slots = session.get("collected_slots", {})
         intent = session.get("intent")
 
@@ -749,7 +756,7 @@ class ConversationalAgent:
             yield text
 
     async def _greeting_turn_stream(self, transcript: str, session: dict):
-        language = session.get("language", "en")
+        language = LANGUAGE_NAMES.get(session.get("language", "en"), "English")
         system_dynamic = GREETING_SYSTEM_DYNAMIC.format(
             language=language,
             today=date.today().isoformat(),
@@ -783,7 +790,7 @@ class ConversationalAgent:
         logger.info("greet_stream_done", extra={"intent": intent, "ms": out["latency_ms"]})
 
     async def _booking_turn_stream(self, transcript: str, session: dict):
-        language = session.get("language", "en")
+        language = LANGUAGE_NAMES.get(session.get("language", "en"), "English")
         intent = session.get("intent") or "booking_new"
         collected_slots = dict(session.get("collected_slots", {}))
 
@@ -865,7 +872,7 @@ class ConversationalAgent:
     async def _confirmation_turn_stream(self, transcript: str, session: dict):
         """Three paths: deny / affirm / ambiguous. Only ambiguous calls the LLM
         — the other two yield a single deterministic chunk and skip Claude."""
-        language = session.get("language", "en")
+        language = LANGUAGE_NAMES.get(session.get("language", "en"), "English")
         collected_slots = dict(session.get("collected_slots", {}))
 
         lower = transcript.lower().strip()

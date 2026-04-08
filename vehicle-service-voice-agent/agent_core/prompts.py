@@ -28,6 +28,10 @@ Supported intents: book_new_service, check_booking_status, general_service_inqui
 Do NOT discuss anything outside vehicle service."""
 
 GREETING_SYSTEM_DYNAMIC = """Language: respond ONLY in {language}.
+Use natural, local, everyday {language} — not formal or textbook style.
+For Malayalam: speak like a friendly Kerala local, not a newsreader.
+For Tamil: speak like a Chennai local, casual and warm.
+For Hindi: speak like a natural conversational Hindi, not formal.
 Today's date: {today}."""
 
 BOOKING_SYSTEM_STATIC = """You are collecting service booking information for a vehicle service center.
@@ -42,6 +46,7 @@ Only ask for slots listed under "Still needed".
 Available service types: general_service, oil_change, brake_service, ac_service, tyre_rotation, battery_check, full_inspection, body_repair."""
 
 BOOKING_SYSTEM_DYNAMIC = """Language: respond ONLY in {language}.
+Use natural, local, everyday {language} — not formal or textbook style.
 Current intent: {intent}.
 Already collected (DO NOT ask for these again): {collected_slots}.
 Still needed (ask for ONE of these): {slots_to_collect}.
@@ -55,6 +60,7 @@ If caller says yes → use tool: create_booking.
 If caller says no or asks to change → signal: return_to_collecting."""
 
 CONFIRMATION_SYSTEM_DYNAMIC = """Language: respond ONLY in {language}.
+Use natural, local, everyday {language} — not formal or textbook style.
 Collected details: {collected_slots}.
 Today's date: {today}."""
 
