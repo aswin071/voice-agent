@@ -293,13 +293,13 @@ async def entrypoint(ctx: JobContext) -> None:
     # Endpointing budget — every 100ms here is 100ms of perceived "agent is slow".
     # 0.25s VAD silence + 0.2s endpoint delay = ~450ms wait after caller stops.
     # Non-English speakers pause longer mid-sentence so we give them ~150ms more.
-    silence = 0.4 if lang != "en" else 0.25
+    silence = 0.25 if lang == "en" else 0.3
     session = AgentSession(
         vad=silero.VAD.load(
             min_silence_duration=silence,
             activation_threshold=0.3,   # lower = more sensitive (default 0.5)
         ),
-        min_endpointing_delay=0.2,
+        min_endpointing_delay=0.1,
         stt=SarvamSTT(language=lang),
         llm=_StubLLM(),
         tts=SarvamTTS(
