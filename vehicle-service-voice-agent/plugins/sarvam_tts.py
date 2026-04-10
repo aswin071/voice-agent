@@ -32,10 +32,10 @@ settings = get_settings()
 #
 # Picked per language for warmth/conversational feel. Override per call with voice=...
 DEFAULT_VOICES = {
-    "ta": "priya",   # warm Tamil female
-    "hi": "priya",   # conversational Hindi female
-    "en": "priya",   # warm Indian-English female
-    "ml": "priya",   # warm Malayalam female
+    "ta": "priya",   # bulbul:v3 verified voice
+    "hi": "priya",
+    "en": "priya",
+    "ml": "priya",
     "te": "priya",
     "kn": "priya",
     "mr": "priya",
