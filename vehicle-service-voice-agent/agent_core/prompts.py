@@ -74,7 +74,7 @@ GREETINGS = {
     "ta": "வணக்கம்! SpeedCare-க்கு நல்வரவு. உங்கள் வாகன சர்வீஸ் தொடர்பாக எப்படி உதவ முடியும்?",
     "hi": "नमस्ते! SpeedCare में आपका स्वागत है। आपकी गाड़ी की सर्विस के लिए मैं कैसे मदद कर सकता हूँ?",
     "en": "Hello! Welcome to SpeedCare. How can I help you with your vehicle service today?",
-    "ml": "നമസ്കാരം! SpeedCare-ലേക്ക് സ്വാഗതം. നിങ്ങളുടെ വാഹന സർവ്വീസിന് എങ്ങനെ സഹായിക്കാം?",
+    "ml": "നമസ്കാരം! SpeedCare-ലേക്ക് സ്വാഗതം. നിങ്ങളുടെ വാഹനസർവീസിനായി എന്ത് help ആണ് വേണ്ടത്?",
 }
 
 FALLBACK_MESSAGES = {

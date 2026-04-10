@@ -29,7 +29,8 @@ from livekit.agents import (
     RoomInputOptions,
 )
 from livekit.plugins import silero, noise_cancellation
-
+from plugins.sarvam_stt import SarvamSTT
+from plugins.sarvam_tts import SarvamTTS
 from config import get_settings
 
 load_dotenv(dotenv_path=".env.local")
@@ -110,38 +111,38 @@ If all info is collected, confirm and provide booking reference."""
     async def speak(self, text: str, ctx):
         """Convert text to speech using Sarvam TTS."""
         logger.info(f"Agent speaking: {text[:50]}...")
+        await ctx.session.say(text=text)
+        # try:
+        #     # Generate audio with Sarvam
+        #     async with httpx.AsyncClient(timeout=30) as client:
+        #         resp = await client.post(
+        #             settings.SARVAM_TTS_URL,
+        #             headers={
+        #                 "api-subscription-key": settings.SARVAM_API_KEY,
+        #                 "Content-Type": "application/json",
+        #             },
+        #             json={
+        #                 "text": text,
+        #                 "language_code": "en",
+        #                 "voice": "mia",
+        #                 "model": "bulbul:v3",
+        #                 "speed": 1.0,
+        #             },
+        #         )
+        #         resp.raise_for_status()
 
-        try:
-            # Generate audio with Sarvam
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(
-                    settings.SARVAM_TTS_URL,
-                    headers={
-                        "api-subscription-key": settings.SARVAM_API_KEY,
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "text": text,
-                        "language_code": "en",
-                        "voice": "mia",
-                        "model": "bulbul:v3",
-                        "speed": 1.0,
-                    },
-                )
-                resp.raise_for_status()
-
-                # Get audio bytes
-                audio_bytes = resp.content
-                logger.info(f"TTS generated: {len(audio_bytes)} bytes")
+        #         # Get audio bytes
+        #         audio_bytes = resp.content
+        #         logger.info(f"TTS generated: {len(audio_bytes)} bytes")
 
                 # In a full implementation, we'd stream this to LiveKit
                 # For now, use the agent's text response capability
-                await ctx.session.generate_reply(instructions=text)
+                # await ctx.session.generate_reply(instructions=text)
 
-        except Exception as e:
-            logger.error(f"TTS error: {e}")
-            # Fallback: just send text
-            await ctx.session.generate_reply(instructions=text)
+        # except Exception as e:
+        #     logger.error(f"TTS error: {e}")
+        #     # Fallback: just send text
+        #     await ctx.session.generate_reply(instructions=text)
 
 
 async def entrypoint(ctx: JobContext):
@@ -177,7 +178,7 @@ async def entrypoint(ctx: JobContext):
         logger.info(f"Caller joined: {participant.identity}")
         asyncio.create_task(
             session.generate_reply(
-                instructions="Hello! Welcome to SpeedCare. How can I help you with your vehicle service today?"
+                instructions="Hey! Welcome to SpeedCare. How can I help you with your vehicle service today?"
             )
         )
 

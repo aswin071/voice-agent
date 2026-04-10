@@ -62,7 +62,7 @@ GREETINGS = {
     "en": "Hello! Welcome to SpeedCare. How can I help you with your vehicle service today?",
     "ta": "வணக்கம்! ஸ்பீட்கேருக்கு வரவேற்கிறோம். உங்கள் வாகன சேவைக்கு எப்படி உதவ முடியும்?",
     "hi": "नमस्ते! स्पीडकेयर में आपका स्वागत है। मैं आपकी वाहन सेवा में कैसे मदद कर सकता हूँ?",
-    "ml": "നമസ്കാരം! സ്പീഡ്‌കെയറിലേക്ക് സ്വാഗതം. നിങ്ങളുടെ വാഹന സേവനത്തിൽ എങ്ങനെ സഹായിക്കാം?",
+    "ml": "നമസ്കാരം! സ്പീഡ്‌കെയറിലേക്ക് സ്വാഗതം. നിങ്ങളുടെ വാഹനസർവീസിനായി എന്ത് help ആണ് വേണ്ടത്?",
 }
 
 
@@ -313,7 +313,8 @@ async def entrypoint(ctx: JobContext) -> None:
         tts=SarvamTTS(
             language=lang,
             model="bulbul:v3",
-            pace=0.85 if lang != "en" else 1.0,  # slower for Indian languages = more natural
+            pace=1.15 if lang != "en" else 1.0,  # slower for Indian languages = more natural
+            pitch=0.3,
             enable_preprocessing=True,
         ),
     )
