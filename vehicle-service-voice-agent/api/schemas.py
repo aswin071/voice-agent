@@ -53,6 +53,18 @@ class LiveKitTokenRequest(BaseModel):
     participant_identity: str
     grants: list[str] = ["roomJoin", "canPublish", "canSubscribe"]
     ttl_seconds: int = 7200
+    # Optional call personalisation forwarded to the agent via dispatch metadata.
+    # language:    short code "en" | "ta" | "hi" | "ml"
+    # voice:       bulbul:v3 speaker name e.g. "ishita", "shubh"
+    # temperature: TTS expressiveness 0.01–1.0 (v3 only, default 0.6)
+    # pace:        TTS speech speed 0.5–2.0 (default 1.0)
+    # stt_mode:    STT output mode: "transcribe" | "codemix" (saaras:v3 only)
+    #              codemix is best for mixed-language callers (Hinglish/Tanglish)
+    language: str | None = None
+    voice: str | None = None
+    temperature: float | None = None
+    pace: float | None = None
+    stt_mode: str | None = None
 
 
 class ApiKeyCreateRequest(BaseModel):

@@ -6,310 +6,428 @@
     <title>SpeedCare Voice Agent - DEBUG MODE</title>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.0.0/dist/livekit-client.umd.js"></script>
     <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
-        .container { max-width: 900px; margin: 0 auto; }
-        h1 { color: #4ec9b0; }
-        .debug-box {
+        .container { max-width: 960px; margin: 0 auto; }
+        h1 { color: #4ec9b0; margin-bottom: 20px; }
+        h2 { color: #9cdcfe; font-size: 13px; margin-bottom: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
+
+        .card {
             background: #252526; border: 1px solid #3e3e42;
-            border-radius: 4px; padding: 15px; margin: 10px 0;
-            max-height: 300px; overflow-y: auto;
+            border-radius: 6px; padding: 16px; margin-bottom: 14px;
         }
-        .log-entry { padding: 3px 0; border-bottom: 1px solid #3e3e42; font-size: 12px; }
-        .log-time { color: #808080; margin-right: 10px; }
-        .log-info { color: #4ec9b0; }
+        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+        label { display: block; color: #9cdcfe; font-size: 11px; margin-bottom: 4px; margin-top: 10px; }
+        label:first-child { margin-top: 0; }
+
+        input, select {
+            padding: 9px 10px; width: 100%;
+            background: #3c3c3c; color: #d4d4d4;
+            border: 1px solid #555; border-radius: 4px;
+            font-family: monospace; font-size: 13px;
+        }
+        input:focus, select:focus { outline: none; border-color: #4ec9b0; }
+
+        button {
+            padding: 10px 16px; cursor: pointer; border: none; border-radius: 4px;
+            font-family: monospace; font-size: 13px; font-weight: bold;
+            transition: background 0.15s;
+        }
+        .btn-connect  { background: #0e639c; color: #fff; width: 100%; margin-top: 12px; }
+        .btn-connect:hover  { background: #1177bb; }
+        .btn-connect:disabled { background: #444; color: #777; cursor: not-allowed; }
+        .btn-disconnect { background: #6b2020; color: #fff; width: 100%; margin-top: 6px; }
+        .btn-disconnect:hover { background: #8a2828; }
+        .btn-disconnect:disabled { background: #444; color: #777; cursor: not-allowed; }
+
+        .debug-box {
+            background: #1a1a1a; border: 1px solid #3e3e42;
+            border-radius: 4px; padding: 10px;
+            max-height: 280px; overflow-y: auto;
+            font-size: 11.5px; line-height: 1.6;
+        }
+        .log-time  { color: #606060; margin-right: 8px; }
+        .log-info  { color: #9cdcfe; }
+        .log-ok    { color: #4ec9b0; }
         .log-error { color: #f48771; }
-        .log-warn { color: #dcdcaa; }
-        input, select, button {
-            padding: 10px; margin: 5px 0; width: 100%;
-            background: #3c3c3c; color: #d4d4d4; border: 1px solid #555;
-            border-radius: 4px;
+        .log-warn  { color: #dcdcaa; }
+
+        .badge {
+            display: inline-block; padding: 3px 8px; border-radius: 3px;
+            font-size: 11px; font-weight: bold;
         }
-        button { background: #0e639c; cursor: pointer; }
-        button:hover { background: #1177bb; }
-        button:disabled { background: #555; cursor: not-allowed; }
-        .section { margin: 20px 0; }
-        .label { color: #9cdcfe; font-weight: bold; }
+        .badge-connected    { background: #1c4a1c; color: #4ec9b0; }
+        .badge-disconnected { background: #4a1c1c; color: #f48771; }
+        .badge-idle         { background: #3c3c3c; color: #808080; }
+
         .token-box {
-            background: #1e1e1e; border: 1px solid #555;
+            background: #1a1a1a; border: 1px solid #3e3e42;
             padding: 10px; font-size: 11px; word-break: break-all;
-            max-height: 150px; overflow-y: auto;
+            max-height: 130px; overflow-y: auto; border-radius: 4px;
         }
+        pre { margin: 0; white-space: pre-wrap; }
+
+        .hint { color: #606060; font-size: 11px; margin-top: 4px; }
+        .section-row { display: flex; gap: 10px; align-items: flex-end; }
+        .section-row > * { flex: 1; }
+
+        optgroup { color: #9cdcfe; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>🚗 SpeedCare Voice Agent - DEBUG MODE</h1>
+<div class="container">
+    <h1>🚗 SpeedCare Voice Agent — DEBUG</h1>
 
-        <div class="section">
-            <div class="label">Step 1: Enter Room Name (from dispatch)</div>
-            <input type="text" id="roomName" placeholder="e.g., room-U3bXa2Spj7dG" />
-
-            <div class="label">Step 2: Your Identity</div>
-            <input type="text" id="identity" value="caller-test" />
-
-            <button id="connectBtn" onclick="connect()">1. Get Token & Connect</button>
-            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+    <!-- ── Connection setup ── -->
+    <div class="card">
+        <h2>Connection</h2>
+        <div class="grid2">
+            <div>
+                <label>Room Name (from dispatch)</label>
+                <input type="text" id="roomName" placeholder="e.g. room-U3bXa2Spj7dG" />
+            </div>
+            <div>
+                <label>Your Identity</label>
+                <input type="text" id="identity" value="caller-test" />
+            </div>
         </div>
 
-        <div class="section">
-            <div class="label">Debug Log:</div>
-            <div class="debug-box" id="debugLog"></div>
+        <button class="btn-connect" id="connectBtn" onclick="connect()">Connect</button>
+        <button class="btn-disconnect" id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+    </div>
+
+    <!-- ── TTS personalisation ── -->
+    <div class="card">
+        <h2>TTS Voice Settings (sent to agent on connect)</h2>
+        <div class="grid3">
+            <div>
+                <label>Language</label>
+                <select id="language" onchange="onLanguageChange()">
+                    <option value="">— server default (en) —</option>
+                    <option value="en">English (en-IN)</option>
+                    <option value="ta">Tamil (ta-IN)</option>
+                    <option value="hi">Hindi (hi-IN)</option>
+                    <option value="ml">Malayalam (ml-IN)</option>
+                </select>
+                <p class="hint">Controls STT + TTS language for this call.</p>
+            </div>
+            <div>
+                <label>STT Mode (saaras:v3)</label>
+                <select id="sttMode">
+                    <option value="">— default (transcribe) —</option>
+                    <option value="transcribe">transcribe — native script, normalised numbers</option>
+                    <option value="codemix">codemix — Hinglish/Tanglish mixed callers ★</option>
+                    <option value="verbatim">verbatim — exact words, spoken numbers</option>
+                    <option value="translate">translate → English output</option>
+                    <option value="translit">translit → Latin/Roman script</option>
+                </select>
+                <p class="hint">codemix is best for English+Indian language mixed callers.</p>
+            </div>
+            <div>
+                <label>Voice (bulbul:v3 speaker)</label>
+                <select id="voice">
+                    <option value="">— language default (ishita) —</option>
+                    <optgroup label="Female — excels across Indian languages">
+                        <option value="ishita">ishita ★ recommended</option>
+                        <option value="priya">priya ★ recommended</option>
+                        <option value="ritu">ritu</option>
+                        <option value="neha">neha</option>
+                        <option value="pooja">pooja</option>
+                        <option value="simran">simran</option>
+                        <option value="kavya">kavya</option>
+                        <option value="shreya">shreya</option>
+                        <option value="roopa">roopa</option>
+                        <option value="amelia">amelia</option>
+                        <option value="sophia">sophia</option>
+                        <option value="tanya">tanya</option>
+                        <option value="shruti">shruti</option>
+                        <option value="suhani">suhani</option>
+                        <option value="kavitha">kavitha</option>
+                        <option value="rupali">rupali</option>
+                    </optgroup>
+                    <optgroup label="Male">
+                        <option value="shubh">shubh ★ recommended male</option>
+                        <option value="aditya">aditya</option>
+                        <option value="rahul">rahul</option>
+                        <option value="rohan">rohan</option>
+                        <option value="amit">amit</option>
+                        <option value="dev">dev</option>
+                        <option value="ratan">ratan</option>
+                        <option value="varun">varun</option>
+                        <option value="manan">manan</option>
+                        <option value="sumit">sumit</option>
+                        <option value="kabir">kabir</option>
+                        <option value="aayan">aayan</option>
+                        <option value="ashutosh">ashutosh</option>
+                        <option value="advait">advait</option>
+                        <option value="anand">anand</option>
+                        <option value="tarun">tarun</option>
+                        <option value="sunny">sunny</option>
+                        <option value="mani">mani</option>
+                        <option value="gokul">gokul</option>
+                        <option value="vijay">vijay</option>
+                        <option value="mohit">mohit</option>
+                        <option value="rehan">rehan</option>
+                        <option value="soham">soham</option>
+                    </optgroup>
+                </select>
+                <p class="hint">Speaker names are case-sensitive lowercase (bulbul:v3).</p>
+            </div>
         </div>
 
-        <div class="section">
-            <div class="label">Token (decoded):</div>
-            <div class="token-box" id="tokenBox">No token yet</div>
+        <!-- Temperature + Pace sliders -->
+        <div class="grid2" style="margin-top:14px">
+            <div>
+                <label>
+                    Expressiveness / Temperature —
+                    <span id="tempVal" style="color:#4ec9b0;font-weight:bold">0.60</span>
+                    &nbsp;<span style="color:#606060">(0.01 robotic → 1.0 very expressive)</span>
+                </label>
+                <input type="range" id="temperature" min="0.01" max="1.0" step="0.01" value="0.60"
+                       oninput="document.getElementById('tempVal').textContent = parseFloat(this.value).toFixed(2)"
+                       style="padding:4px 0; border:none; background:transparent; cursor:pointer;" />
+                <p class="hint">
+                    0.5 = professional IVR &nbsp;|&nbsp; 0.6 = warm natural (default) &nbsp;|&nbsp; 0.8 = lively storytelling
+                </p>
+            </div>
+            <div>
+                <label>
+                    Pace / Speed —
+                    <span id="paceVal" style="color:#4ec9b0;font-weight:bold">1.00</span>
+                    &nbsp;<span style="color:#606060">(0.5 slow → 2.0 fast)</span>
+                </label>
+                <input type="range" id="pace" min="0.5" max="2.0" step="0.05" value="1.0"
+                       oninput="document.getElementById('paceVal').textContent = parseFloat(this.value).toFixed(2)"
+                       style="padding:4px 0; border:none; background:transparent; cursor:pointer;" />
+                <p class="hint">
+                    0.85 = clear/measured &nbsp;|&nbsp; 1.0 = natural conversation (default) &nbsp;|&nbsp; 1.2 = brisk
+                </p>
+            </div>
         </div>
 
-        <div class="section">
-            <div class="label">Connection State:</div>
-            <div id="connState">Not connected</div>
+        <!-- Pronunciation dictionary status -->
+        <div style="margin-top:14px">
+            <label>Pronunciation Dictionary (dict_id — active on agent side)</label>
+            <input type="text" id="dictIdDisplay" readonly value="resolved by agent at startup"
+                   style="color:#808080; cursor:default;" />
+            <p class="hint">
+                SpeedCare domain terms (ABS, AC, KM, state codes) are pre-loaded.
+                dict_id is logged by the agent worker on startup.
+                Set SARVAM_DICT_ID in .env.local to persist across restarts.
+            </p>
         </div>
     </div>
 
-    <script>
-        const LIVEKIT_URL = 'wss://ruka-voice-agent-rim8gdnh.livekit.cloud';
-        let room = null;
-        let localTrack = null;
+    <!-- ── Status ── -->
+    <div class="card">
+        <h2>Status</h2>
+        <div id="connState"><span class="badge badge-idle">IDLE</span></div>
+    </div>
 
-        function log(msg, type = 'info') {
-            const time = new Date().toLocaleTimeString();
-            const container = document.getElementById('debugLog');
-            const entry = document.createElement('div');
-            entry.className = 'log-entry';
-            entry.innerHTML = `<span class="log-time">${time}</span><span class="log-${type}">${msg}</span>`;
-            container.appendChild(entry);
-            container.scrollTop = container.scrollHeight;
-            console.log(`[${type.toUpperCase()}] ${msg}`);
+    <!-- ── Debug log ── -->
+    <div class="card">
+        <h2>Debug Log</h2>
+        <div class="debug-box" id="debugLog"></div>
+    </div>
+
+    <!-- ── Token ── -->
+    <div class="card">
+        <h2>JWT Token (decoded)</h2>
+        <div class="token-box" id="tokenBox">No token yet</div>
+    </div>
+</div>
+
+<script>
+    const LIVEKIT_URL = 'wss://ruka-voice-agent-rim8gdnh.livekit.cloud';
+    let room = null;
+    let localTrack = null;
+
+    // Auto-generate a unique room name on every page load.
+    // This prevents stale agents from a previous session from lingering in
+    // the same room and overlapping with the new agent.
+    (function seedRoomName() {
+        const rand = Math.random().toString(36).slice(2, 10);
+        document.getElementById('roomName').value = `room-${rand}`;
+    })();
+
+    // ── Logging ──────────────────────────────────────────────────────────
+    function log(msg, type = 'info') {
+        const time = new Date().toLocaleTimeString();
+        const container = document.getElementById('debugLog');
+        const entry = document.createElement('div');
+        const cssClass = type === 'ok' ? 'log-ok' : `log-${type}`;
+        entry.innerHTML = `<span class="log-time">${time}</span><span class="${cssClass}">${escapeHtml(msg)}</span>`;
+        container.appendChild(entry);
+        container.scrollTop = container.scrollHeight;
+        console.log(`[${type.toUpperCase()}] ${msg}`);
+    }
+
+    function escapeHtml(s) {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    function setConnState(html) {
+        document.getElementById('connState').innerHTML = html;
+    }
+
+    // ── Language change helper ────────────────────────────────────────────
+    function onLanguageChange() {
+        const lang = document.getElementById('language').value;
+        // No-op for now — voice list is static (all v3 voices work with any lang).
+        // Could auto-select a language-specific default here if desired.
+    }
+
+    // ── JWT decode ───────────────────────────────────────────────────────
+    function decodeJWT(token) {
+        try {
+            const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            return JSON.parse(decodeURIComponent(
+                atob(b64).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+            ));
+        } catch (e) { return { error: e.message }; }
+    }
+
+    // ── Token fetch ──────────────────────────────────────────────────────
+    async function getToken(roomName, identity, language, voice, temperature, pace, sttMode) {
+        log(`Requesting token — room: ${roomName}  lang: ${language || 'default'}  voice: ${voice || 'default'}  stt_mode: ${sttMode || 'default'}  temp: ${temperature}  pace: ${pace}`);
+
+        const body = {
+            call_sid: roomName,
+            participant_identity: identity,
+            ttl_seconds: 3600,
+        };
+        if (language)    body.language    = language;
+        if (voice)       body.voice       = voice;
+        if (temperature) body.temperature = parseFloat(temperature);
+        if (pace)        body.pace        = parseFloat(pace);
+        if (sttMode)     body.stt_mode    = sttMode;
+
+        const response = await fetch('http://localhost:8000/api/v1/auth/livekit-token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        log(`Token endpoint → HTTP ${response.status}`);
+        if (!response.ok) {
+            const err = await response.text();
+            throw new Error(`HTTP ${response.status}: ${err}`);
         }
 
-        function decodeJWT(token) {
-            try {
-                const base64Url = token.split('.')[1];
-                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
-                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-                }).join(''));
-                return JSON.parse(jsonPayload);
-            } catch (e) {
-                return { error: e.message };
-            }
+        const data = await response.json();
+        log('Token received', 'ok');
+
+        const token = data.data.token;
+        const decoded = decodeJWT(token);
+        const expDate = decoded.exp ? new Date(decoded.exp * 1000) : null;
+
+        document.getElementById('tokenBox').innerHTML =
+            `<strong>Raw (truncated):</strong> ${token.substring(0, 60)}…<br><br>` +
+            `<strong>Decoded:</strong><pre>${escapeHtml(JSON.stringify(decoded, null, 2))}</pre>`;
+
+        if (expDate) {
+            log(`Token expires: ${expDate.toISOString()}  valid: ${expDate > new Date()}`);
         }
+        return token;
+    }
 
-        async function getToken(roomName, identity) {
-            log(`Requesting token for room: ${roomName}, identity: ${identity}`);
+    // ── Connect ──────────────────────────────────────────────────────────
+    async function connect() {
+        const roomName    = document.getElementById('roomName').value.trim();
+        const identity    = document.getElementById('identity').value.trim();
+        const language    = document.getElementById('language').value    || null;
+        const voice       = document.getElementById('voice').value       || null;
+        const sttMode     = document.getElementById('sttMode').value     || null;
+        const temperature = document.getElementById('temperature').value || null;
+        const pace        = document.getElementById('pace').value        || null;
 
-            try {
-                const response = await fetch('http://localhost:8000/api/v1/auth/livekit-token', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        call_sid: roomName,
-                        participant_identity: identity,
-                        ttl_seconds: 3600
-                    })
-                });
+        if (!roomName) { alert('Enter a room name first.'); return; }
 
-                log(`Token endpoint status: ${response.status}`);
+        document.getElementById('connectBtn').disabled = true;
+        setConnState('<span class="badge badge-idle">CONNECTING…</span>');
+        log('=== STARTING CONNECTION ===');
+        log(`LiveKit URL: ${LIVEKIT_URL}`);
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
-                }
+        try {
+            // 1. Token (triggers agent dispatch with full metadata)
+            const token = await getToken(roomName, identity, language, voice, temperature, pace, sttMode);
 
-                const data = await response.json();
-                log('Token received successfully');
+            // 2. Room
+            log('Creating LiveKit Room…');
+            room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
 
-                // Display decoded token
-                const token = data.data.token;
-                const decoded = decodeJWT(token);
-                document.getElementById('tokenBox').innerHTML = `
-                    <strong>Raw:</strong> ${token.substring(0, 50)}...<br><br>
-                    <strong>Decoded:</strong><pre>${JSON.stringify(decoded, null, 2)}</pre>
-                `;
-
-                // Check token validity
-                if (decoded.exp) {
-                    const expDate = new Date(decoded.exp * 1000);
-                    const now = new Date();
-                    log(`Token expires: ${expDate.toISOString()}`);
-                    log(`Token valid: ${expDate > now}`);
-                }
-
-                if (decoded.sub) {
-                    log(`Token subject: ${decoded.sub}`);
-                }
-
-                return token;
-            } catch (e) {
-                log(`Token fetch error: ${e.message}`, 'error');
-                throw e;
-            }
-        }
-
-        async function connect() {
-            const roomName = document.getElementById('roomName').value.trim();
-            const identity = document.getElementById('identity').value.trim();
-
-            if (!roomName) {
-                alert('Enter room name!');
-                return;
-            }
-
-            document.getElementById('connectBtn').disabled = true;
-            log('=== STARTING CONNECTION ===');
-            log(`LiveKit URL: ${LIVEKIT_URL}`);
-            log(`Room: ${roomName}`);
-
-            try {
-                // Step 1: Get token
-                log('Step 1: Fetching token...');
-                const token = await getToken(roomName, identity);
-
-                // Step 2: Create room
-                log('Step 2: Creating LiveKit Room object...');
-                room = new LivekitClient.Room({
-                    adaptiveStream: true,
-                    dynacast: true,
-                });
-
-                // Step 3: Set up event handlers BEFORE connecting
-                log('Step 3: Setting up event handlers...');
-
-                room.on('connected', () => {
-                    log('✓ Room connected!', 'info');
-                    document.getElementById('connState').innerHTML = '<span style="color: #4ec9b0">CONNECTED</span>';
-                    document.getElementById('disconnectBtn').disabled = false;
-                });
-
-                room.on('disconnected', (reason) => {
-                    log(`✗ Room disconnected: ${reason || 'no reason given'}`, 'error');
-                    document.getElementById('connState').innerHTML = '<span style="color: #f48771">DISCONNECTED</span>';
-                    document.getElementById('connectBtn').disabled = false;
-                });
-
-                room.on('connectionStateChanged', (state) => {
-                    log(`Connection state changed: ${state}`);
-                });
-
-                room.on('mediaDeviceError', (e) => {
-                    log(`Media device error: ${e.message}`, 'error');
-                });
-
-                room.on('signalResuming', () => {
-                    log('Signal resuming...');
-                });
-
-                room.on('signalResumed', () => {
-                    log('Signal resumed');
-                });
-
-                room.on('signalReconnecting', (attempt) => {
-                    log(`Signal reconnecting... attempt ${attempt}`, 'warn');
-                });
-
-                room.on('participantConnected', (p) => {
-                    log(`Participant joined: ${p.identity}`);
-                });
-
-                room.on('participantDisconnected', (p) => {
-                    log(`Participant left: ${p.identity}`);
-                });
-
-                room.on('trackSubscribed', (track, pub, participant) => {
-                    log(`Track subscribed: ${track.kind} from ${participant.identity}`);
-                    if (track.kind === 'audio') {
-                        const el = track.attach();
-                        el.autoplay = true;
-                        document.body.appendChild(el);
-                    }
-                });
-
-                // Step 4: Connect
-                log('Step 4: Connecting to LiveKit...');
-                log(`Using URL: ${LIVEKIT_URL}`);
-
-                try {
-                    await room.connect(LIVEKIT_URL, token);
-                    log('✓ WebSocket connection established');
-                } catch (connErr) {
-                    log(`Connection failed: ${connErr.message}`, 'error');
-                    log(`Error type: ${connErr.constructor.name}`, 'error');
-                    if (connErr.message.includes('401')) {
-                        log('ERROR: Unauthorized - token is invalid or expired', 'error');
-                    } else if (connErr.message.includes('404')) {
-                        log('ERROR: Room not found', 'error');
-                    }
-                    throw connErr;
-                }
-
-                // Step 5: Enable microphone
-                log('Step 5: Enabling microphone...');
-
-                // Detailed debugging
-                log(`Protocol: ${window.location.protocol}`);
-                log(`Host: ${window.location.host}`);
-                log(`LivekitClient exists: ${typeof LivekitClient !== 'undefined'}`);
-                log(`navigator.mediaDevices exists: ${typeof navigator.mediaDevices !== 'undefined'}`);
-
-                if (typeof navigator.mediaDevices === 'undefined') {
-                    log('ERROR: navigator.mediaDevices is undefined', 'error');
-                    log('This usually means:', 'error');
-                    log('1. Not using HTTPS (except localhost)', 'error');
-                    log('2. Browser is blocking insecure content', 'error');
-                    log('3. Try using Chrome with http://localhost:3000', 'error');
-                    throw new Error('mediaDevices not available');
-                }
-
-                try {
-                    log('Requesting microphone via getUserMedia...');
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    log('✓ Microphone permission granted');
-                    stream.getTracks().forEach(t => t.stop()); // Stop test stream
-
-                    log('Creating LiveKit audio track...');
-                    localTrack = await LivekitClient.createLocalAudioTrack();
-                    log('✓ LiveKit audio track created');
-
-                    await room.localParticipant.publishTrack(localTrack);
-                    log('✓ Audio track published to room');
-                } catch (micErr) {
-                    log(`Microphone error: ${micErr.name} - ${micErr.message}`, 'error');
-                    if (micErr.name === 'NotAllowedError') {
-                        log('You denied microphone permission. Please:', 'error');
-                        log('1. Click the lock icon in browser address bar', 'error');
-                        log('2. Set Microphone to "Allow"', 'error');
-                        log('3. Refresh the page', 'error');
-                    } else if (micErr.name === 'NotFoundError') {
-                        log('No microphone found. Please connect a microphone.', 'error');
-                    } else if (micErr.name === 'NotReadableError') {
-                        log('Microphone is in use by another application.', 'error');
-                    }
-                }
-
-                log('=== CONNECTION COMPLETE ===');
-
-            } catch (e) {
-                log(`FATAL ERROR: ${e.message}`, 'error');
-                console.error(e);
+            // 3. Event handlers
+            room.on('connected', () => {
+                log('Room connected', 'ok');
+                setConnState('<span class="badge badge-connected">CONNECTED</span>');
+                document.getElementById('disconnectBtn').disabled = false;
+            });
+            room.on('disconnected', (reason) => {
+                log(`Room disconnected: ${reason || 'unknown'}`, 'error');
+                setConnState('<span class="badge badge-disconnected">DISCONNECTED</span>');
                 document.getElementById('connectBtn').disabled = false;
-            }
-        }
+                document.getElementById('disconnectBtn').disabled = true;
+            });
+            room.on('connectionStateChanged', s => log(`Connection state: ${s}`));
+            room.on('mediaDeviceError', e => log(`Media device error: ${e.message}`, 'error'));
+            room.on('participantConnected', p => log(`Participant joined: ${p.identity}`, 'ok'));
+            room.on('participantDisconnected', p => log(`Participant left: ${p.identity}`, 'warn'));
+            room.on('trackSubscribed', (track, pub, participant) => {
+                log(`Track subscribed: ${track.kind} from ${participant.identity}`, 'ok');
+                if (track.kind === 'audio') {
+                    const el = track.attach();
+                    el.autoplay = true;
+                    document.body.appendChild(el);
+                    log('Agent audio element attached — you should hear the agent', 'ok');
+                }
+            });
 
-        async function disconnect() {
-            log('Disconnecting...');
-            if (localTrack) {
-                localTrack.stop();
-                localTrack = null;
+            // 4. Connect
+            log('Connecting to LiveKit…');
+            await room.connect(LIVEKIT_URL, token);
+            log('WebSocket connection established', 'ok');
+
+            // 5. Microphone — echo cancellation + noise suppression prevent
+            // the agent's TTS from feeding back into VAD and triggering a
+            // second overlapping LLM response.
+            log('Requesting microphone…');
+            if (!navigator.mediaDevices) {
+                throw new Error('navigator.mediaDevices unavailable — serve over HTTPS or localhost');
             }
-            if (room) {
-                await room.disconnect();
-                room = null;
-            }
-            log('Disconnected');
+            localTrack = await LivekitClient.createLocalAudioTrack({
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            });
+            log('Microphone permission granted', 'ok');
+            await room.localParticipant.publishTrack(localTrack);
+            log('Microphone track published', 'ok');
+
+            log(`=== CONNECTED  lang=${language || 'default'}  voice=${voice || 'default'} ===`, 'ok');
+
+        } catch (e) {
+            log(`FATAL: ${e.message}`, 'error');
+            console.error(e);
+            setConnState('<span class="badge badge-disconnected">ERROR</span>');
             document.getElementById('connectBtn').disabled = false;
-            document.getElementById('disconnectBtn').disabled = true;
         }
-    </script>
+    }
+
+    // ── Disconnect ───────────────────────────────────────────────────────
+    async function disconnect() {
+        log('Disconnecting…');
+        if (localTrack) { localTrack.stop(); localTrack = null; }
+        if (room) { await room.disconnect(); room = null; }
+        log('Disconnected', 'warn');
+        setConnState('<span class="badge badge-idle">IDLE</span>');
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('disconnectBtn').disabled = true;
+    }
+</script>
 </body>
 </html>

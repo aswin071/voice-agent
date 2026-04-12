@@ -17,11 +17,25 @@ class Settings(BaseSettings):
     SARVAM_STT_URL: str = "https://api.sarvam.ai/speech-to-text"
     SARVAM_TTS_URL: str = "https://api.sarvam.ai/text-to-speech"
 
+    # STT — saaras:v3 is the recommended model (saarika:v2.5 is deprecated).
+    # mode: transcribe (default) | codemix | verbatim | translate | translit
+    #   transcribe — native script, number-normalised. Best for most callers.
+    #   codemix    — English words in English, Indic in native script.
+    #                Override per-call via dispatch metadata: {"stt_mode":"codemix"}
+    SARVAM_STT_MODEL: str = "saaras:v3"
+    SARVAM_STT_MODE: str = "transcribe"
+
+    # Pronunciation dictionary — set this after first worker startup so the
+    # worker reuses the existing dict instead of creating a new one each time.
+    # Sarvam limits accounts to 10 dictionaries total.
+    # Example: SARVAM_DICT_ID=p_5cb7faa6
+    SARVAM_DICT_ID: str = ""
+
     # Anthropic
     ANTHROPIC_API_KEY: str = ""
     LLM_MODEL: str = "claude-haiku-4-5-20251001"
     LLM_TEMPERATURE: float = 0.3
-    LLM_MAX_OUTPUT_TOKENS: int = 150
+    LLM_MAX_OUTPUT_TOKENS: int = 100
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://speedcare:speedcare@localhost:5432/speedcare"
