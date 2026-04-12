@@ -154,6 +154,24 @@ async def livekit_token(
     # Create an AgentDispatch so the named worker actually joins this room.
     # Without this the browser connects to an empty room and hears nothing —
     # see plans/binary-swimming-lighthouse.md for the full root-cause writeup.
+    #
+    # Metadata carries language + voice so the agent selects the right TTS
+    # profile without any in-call signalling.  Format: {"language":"ta","voice":"ishita"}
+    import json as _json
+
+    _VALID_STT_MODES = {"transcribe", "codemix", "verbatim", "translate", "translit"}
+    dispatch_meta: dict = {}
+    if body.language:
+        dispatch_meta["language"] = body.language.lower().strip()
+    if body.voice:
+        dispatch_meta["voice"] = body.voice.lower().strip()
+    if body.temperature is not None:
+        dispatch_meta["temperature"] = max(0.01, min(1.0, float(body.temperature)))
+    if body.pace is not None:
+        dispatch_meta["pace"] = max(0.5, min(2.0, float(body.pace)))
+    if body.stt_mode and body.stt_mode.lower().strip() in _VALID_STT_MODES:
+        dispatch_meta["stt_mode"] = body.stt_mode.lower().strip()
+
     from livekit import api as lkapi
 
     lk = lkapi.LiveKitAPI(
@@ -166,7 +184,7 @@ async def livekit_token(
             lkapi.CreateAgentDispatchRequest(
                 agent_name=LIVEKIT_AGENT_NAME,
                 room=body.call_sid,
-                metadata="",
+                metadata=_json.dumps(dispatch_meta) if dispatch_meta else "",
             )
         )
         logger.info(

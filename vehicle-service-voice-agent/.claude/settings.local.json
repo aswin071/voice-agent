@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:docs.sarvam.ai)",
+      "Bash(python:*)",
+      "Bash(ls *.sh *.bat *.ps1)",
+      "Bash(ls requirements*.txt pyproject.toml)"
+    ]
+  }
+}

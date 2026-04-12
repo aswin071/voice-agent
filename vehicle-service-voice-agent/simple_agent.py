@@ -42,6 +42,7 @@ from livekit.plugins import silero
 from agent_core.state_machine import ConversationalAgent
 from config import get_settings
 from db import async_session
+from plugins.sarvam_pronunciation import get_or_create_speedcare_dict
 from plugins.sarvam_stt import SarvamSTT
 from plugins.sarvam_tts import SarvamTTS
 
@@ -54,6 +55,50 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("speedcare.agent")
+
+# ---------------------------------------------------------------------------
+# Per-language TTS voice profiles
+# Each entry defines the optimal SarvamTTS constructor kwargs for that language.
+# "voice" is from the bulbul:v3 catalogue; "pace" is tuned for natural cadence.
+# These are the best-practice defaults — operators can override via job metadata.
+# ---------------------------------------------------------------------------
+_SUPPORTED_LANGS = ("en", "ta", "hi", "ml")
+
+VOICE_PROFILES: dict[str, dict] = {
+    "en": {
+        "voice": "ishita",    # Clear, warm, neutral Indian-English accent
+        "pace": 1.0,
+        "speech_sample_rate": 24_000,
+        "output_codec": "wav",
+        "temperature": 0.5,   # Professional, IVR-clear (0.5 = less expressive)
+    },
+    "ta": {
+        "voice": "ishita",    # Excels across all Indian languages (Sarvam docs)
+        "pace": 1.0,
+        "speech_sample_rate": 24_000,
+        "output_codec": "wav",
+        "temperature": 0.6,   # Warm natural default for Indian languages
+    },
+    "hi": {
+        "voice": "ishita",    # Warm, natural Hindustani cadence
+        "pace": 1.0,
+        "speech_sample_rate": 24_000,
+        "output_codec": "wav",
+        "temperature": 0.6,
+    },
+    "ml": {
+        "voice": "ishita",    # Handles Malayalam phonology naturally
+        "pace": 1.0,
+        "speech_sample_rate": 24_000,
+        "output_codec": "wav",
+        "temperature": 0.6,
+    },
+}
+
+# Module-level pronunciation dict_id — resolved once at first entrypoint call,
+# reused by all subsequent concurrent calls. None = not yet resolved.
+_CACHED_DICT_ID: str | None = None
+_DICT_RESOLVED: bool = False
 
 
 # Hardcoded greetings keyed by language. The first turn is spoken by the
@@ -100,11 +145,12 @@ class _StubLLM(llm.LLM):
 class SpeedCareAgent(Agent):
     """Voice agent that delegates each turn to ConversationalAgent."""
 
-    def __init__(self, *, language: str = "en", db=None, http_client: httpx.AsyncClient | None = None):
+    def __init__(self, *, language: str = "en", voice: str | None = None, db=None, http_client: httpx.AsyncClient | None = None):
         super().__init__(
             instructions="SpeedCare vehicle service voice assistant.",
         )
         self._language = language
+        self._voice = voice  # explicit override from dispatch metadata
         self._db = db
         self._call_session_id = str(uuid.uuid4())
 
@@ -133,59 +179,56 @@ class SpeedCareAgent(Agent):
         logger.info("[TTS  >> caller] %s", greeting)
         self._state["conversation_history"].append({"role": "assistant", "content": greeting})
         # `session.say` pushes the text directly through TTS, bypassing llm_node
-        await self.session.say(greeting, allow_interruptions=True)
+        await self.session.say(greeting, allow_interruptions=False)
 
     async def llm_node(
         self,
         chat_ctx: llm.ChatContext,
         tools: list[llm.Tool],
         model_settings,
-    ) -> str:
-        """Replace the default LLM step with a call into the state machine.
+    ) -> AsyncIterable[str]:
+        """Replace the default LLM step with the streaming state machine path.
 
-        AgentSession invokes this after each finalized STT transcript. We pull
-        the latest user message off `chat_ctx`, run one turn of the state
-        machine, persist the resulting state, and return the reply text. The
-        framework streams that text into the configured TTS.
+        `process_turn_stream` yields text chunks as they arrive from Claude
+        (SSE). The LiveKit framework batches chunks at sentence boundaries and
+        dispatches each completed sentence to Sarvam TTS immediately — so TTS
+        synthesis of sentence 1 overlaps with LLM generation of sentence 2.
+        Time-to-first-audio drops by roughly half the total LLM generation time.
+
+        Session state is mutated in-place by `process_turn_stream` once the
+        generator is exhausted — agent_state, collected_slots, intent, history.
         """
         transcript = self._latest_user_text(chat_ctx)
         if not transcript:
             logger.warning("[STT] empty transcript received — STT may have failed or caller was silent")
-            return ""
+            return
 
         logger.info("[STT  << caller] %s   (state=%s)", transcript, self._state["agent_state"])
 
         turn_start = time.monotonic()
+        full_text: list[str] = []
+
         try:
-            result = await self._brain.process_turn(transcript, self._state)
+            async for chunk in self._brain.process_turn_stream(transcript, self._state):
+                full_text.append(chunk)
+                yield chunk
         except Exception:
-            logger.exception("state_machine_error")
-            return "Sorry, I had a problem. Could you please repeat that?"
+            logger.exception("state_machine_stream_error")
+            yield "Sorry, I had a problem. Could you please repeat that?"
+            return
+
         turn_ms = int((time.monotonic() - turn_start) * 1000)
+        reply = "".join(full_text)
 
         logger.info(
-            "[LLM  -> reply ] %s   (next=%s, intent=%s, tools=%s)",
-            result["response_text"],
-            result["next_agent_state"],
-            result["intent"],
-            result["tool_calls_made"],
+            "[LLM  -> reply ] %s   (next=%s, intent=%s)",
+            reply,
+            self._state["agent_state"],
+            self._state.get("intent"),
         )
-        logger.info(
-            "[LATENCY      ] llm=%dms  brain_turn=%dms  (TTS happens after this)",
-            result["llm_latency_ms"],
-            turn_ms,
-        )
-
-        # Apply state mutations from the FSM result
-        self._state["conversation_history"].append({"role": "user", "content": transcript})
-        self._state["conversation_history"].append({"role": "assistant", "content": result["response_text"]})
-        self._state["agent_state"] = result["next_agent_state"]
-        self._state["intent"] = result["intent"]
-        self._state["collected_slots"] = result["updated_slots"]
+        logger.info("[LATENCY      ] brain_turn=%dms  (TTS overlapped with generation)", turn_ms)
+        logger.info("[TTS  >> caller] %s", reply)
         self._state["turn_count"] += 1
-
-        logger.info("[TTS  >> caller] %s", result["response_text"])
-        return result["response_text"]
 
     @staticmethod
     def _latest_user_text(chat_ctx: llm.ChatContext) -> str:
@@ -269,53 +312,104 @@ async def entrypoint(ctx: JobContext) -> None:
 
     ctx.add_shutdown_callback(_shutdown)
 
-    # Language for this call.
-    # Priority: job metadata (production/SIP) → env var (local dev) → default "en"
-    # In production, dispatch sets metadata like: {"language": "ta"}
-    _SUPPORTED_LANGS = ("en", "ta", "hi", "ml")
-    lang = None
+    # ── Pronunciation dictionary (resolved once per worker process) ────────
+    # get_or_create_speedcare_dict() caches the dict_id internally after the
+    # first call, so concurrent entrypoints all get the same id immediately.
+    global _CACHED_DICT_ID, _DICT_RESOLVED
+    if not _DICT_RESOLVED:
+        _CACHED_DICT_ID = await get_or_create_speedcare_dict()
+        _DICT_RESOLVED = True
 
-    # 1. Try job metadata (production/SIP path)
+    # ── Language & voice resolution ────────────────────────────────────────
+    # Priority order:
+    #   1. job.metadata JSON  → production / SIP dispatch path
+    #   2. env var            → local dev / CI
+    #   3. config default
+    #
+    # Full metadata format:
+    #   {"language":"ta", "voice":"ishita", "temperature":0.7,
+    #    "pace":1.0, "stt_mode":"codemix"}
+    # All keys are optional — missing keys fall through to config/profile defaults.
+    lang: str | None = None
+    voice_override: str | None = None
+    temperature_override: float | None = None
+    pace_override: float | None = None
+    stt_mode_override: str | None = None
+
     if ctx.job and ctx.job.metadata:
         try:
             import json as _json
             _meta = _json.loads(ctx.job.metadata)
             lang = str(_meta.get("language", "")).lower() or None
+            voice_override = str(_meta.get("voice", "")).lower() or None
+            stt_mode_override = str(_meta.get("stt_mode", "")).lower() or None
+            if "temperature" in _meta:
+                try:
+                    temperature_override = float(_meta["temperature"])
+                except (TypeError, ValueError):
+                    pass
+            if "pace" in _meta:
+                try:
+                    pace_override = float(_meta["pace"])
+                except (TypeError, ValueError):
+                    pass
         except Exception:
             logger.warning("job_metadata_parse_failed, falling back to env/default")
 
-    # 2. Fall back to env var (local dev path)
     if not lang:
         lang = os.environ.get("SPEEDCARE_LANG", "").lower() or None
 
-    # 3. Final fallback
     if not lang or lang not in _SUPPORTED_LANGS:
         if lang:
             logger.warning("unsupported_lang=%s, falling back to en", lang)
         lang = "en"
 
-    logger.info("call_language=%s", lang)
+    # Resolve TTS profile for this language, apply any per-call overrides
+    profile = VOICE_PROFILES.get(lang, VOICE_PROFILES["en"])
+    effective_voice = voice_override or profile["voice"]
+    effective_temperature = temperature_override if temperature_override is not None else profile["temperature"]
+    effective_pace = pace_override if pace_override is not None else profile["pace"]
 
-    agent = SpeedCareAgent(language=lang, db=db, http_client=http)
+    # STT mode — per-call override or config default
+    effective_stt_mode = stt_mode_override or settings.SARVAM_STT_MODE
 
-    # Endpointing budget — every 100ms here is 100ms of perceived "agent is slow".
-    # 0.25s VAD silence + 0.2s endpoint delay = ~450ms wait after caller stops.
-    # Non-English speakers pause longer mid-sentence so we give them ~150ms more.
-    silence = 0.25 if lang == "en" else 0.3
+    logger.info(
+        "call_language=%s stt_model=%s stt_mode=%s "
+        "tts_voice=%s tts_pace=%.2f tts_temp=%.2f tts_rate=%d dict_id=%s",
+        lang, settings.SARVAM_STT_MODEL, effective_stt_mode,
+        effective_voice, effective_pace, effective_temperature,
+        profile["speech_sample_rate"], _CACHED_DICT_ID or "none",
+    )
+
+    agent = SpeedCareAgent(language=lang, voice=effective_voice, db=db, http_client=http)
+
+    # ── VAD endpointing ────────────────────────────────────────────────────
+    # Non-English speakers tend to pause longer mid-sentence; give them 50ms
+    # more silence budget to avoid premature endpointing.
+    silence = 0.25 if lang == "en" else 0.30
     session = AgentSession(
         vad=silero.VAD.load(
             min_silence_duration=silence,
             activation_threshold=0.3,   # lower = more sensitive (default 0.5)
         ),
         min_endpointing_delay=0.1,
-        stt=SarvamSTT(language=lang),
+        stt=SarvamSTT(
+            language=lang,
+            model=settings.SARVAM_STT_MODEL,
+            mode=effective_stt_mode,
+        ),
         llm=_StubLLM(),
         tts=SarvamTTS(
             language=lang,
+            voice=effective_voice,
             model="bulbul:v3",
-            pace=1.15 if lang != "en" else 1.0,  # slower for Indian languages = more natural
-            pitch=0.3,
-            enable_preprocessing=True,
+            pace=effective_pace,
+            speech_sample_rate=profile["speech_sample_rate"],
+            output_codec=profile["output_codec"],
+            temperature=effective_temperature,
+            dict_id=_CACHED_DICT_ID,
+            # pitch / loudness / enable_preprocessing are bulbul:v2 only —
+            # SarvamTTS will NOT send them to the v3 endpoint.
         ),
     )
 

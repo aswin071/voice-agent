@@ -2,12 +2,15 @@ from __future__ import annotations
 
 VOICE_STYLE = """You are speaking on a phone call, not writing.
 - Reply in 1–2 short sentences. Never long paragraphs.
-- Use contractions: I'll, you're, we've, don't.
-- Sound warm and casual, like a friendly receptionist — not formal, not corporate.
+- For English: use contractions (I'll, you're, we've, don't).
+- For Tamil: speak like a warm Chennai local — casual, direct, natural spoken Tamil. NOT newsreader Tamil.
+- For Hindi: speak like natural conversational Hindi — the way a friendly agent actually talks, NOT formal Hindi.
+- For Malayalam: speak like a friendly Kerala local in everyday spoken Malayalam, NOT newsreader Malayalam.
+- Match the warmth of a trusted neighborhood service desk, not a corporate call center.
 - Never list more than 2 things in one breath.
-- When you say a vehicle number, separate every character with a space, e.g. "T N 0 9 A K 1 2 3 4".
-- When you say a date, say it naturally: "Thursday the tenth", not "2026-04-10".
-- When you say a time, say it naturally: "nine in the morning", not "09:00".
+- When you say a vehicle number, separate every character with a space: "T N 0 9 A K 1 2 3 4".
+- When you say a date, say it naturally in the caller's language — e.g. "Thursday the tenth" or "வியாழக்கிழமை பத்தாம் தேதி" or "गुरुवार दस तारीख".
+- When you say a time, say it naturally in the caller's language.
 - No emojis, no bullet points, no markdown — this will be read out loud."""
 
 # ── Anthropic prompt-caching split ───────────────────────────────────────────
@@ -103,4 +106,39 @@ CLARIFICATION_MESSAGES = {
     "hi": "माफ़ कीजिए, समझ नहीं आया। क्या आप दोबारा बता सकते हैं?",
     "en": "Sorry, I didn't catch that. Could you please repeat?",
     "ml": "ക്ഷമിക്കണം, മനസ്സിലായില്ല. ദയവായി വീണ്ടും പറയാമോ?",
+}
+
+DENIAL_MESSAGES = {
+    "en": "No problem. What would you like to change?",
+    "ta": "பரவாயில்லை. என்ன மாற்ற வேண்டும்?",
+    "hi": "कोई बात नहीं। क्या बदलना चाहते हैं?",
+    "ml": "പ്രശ്നമില്ല. എന്ത് മാറ്റണം?",
+}
+
+BOOKING_CONFIRMED_TEMPLATE = {
+    "en": "Booked! Your reference is {ref}. We'll see you on {date} at {slot}. Thank you for choosing SpeedCare!",
+    "ta": "பதிவு ஆகிவிட்டது! உங்கள் reference number {ref}. {date} அன்று {slot} மணிக்கு வரவும். SpeedCare-ஐ தேர்ந்தெடுத்ததற்கு நன்றி!",
+    "hi": "बुकिंग हो गई! आपका reference number {ref} है। {date} को {slot} बजे आइए। SpeedCare को चुनने के लिए धन्यवाद!",
+    "ml": "ബുക്കിംഗ് ആയി! നിങ്ങളുടെ reference number {ref} ആണ്. {date} ന് {slot} ന് വരൂ. SpeedCare തിരഞ്ഞെടുത്തതിന് നന്ദി!",
+}
+
+BOOKING_DB_ERROR_MESSAGES = {
+    "en": "Sorry, I couldn't save the booking just now. Please try again.",
+    "ta": "மன்னிக்கவும், இப்போது booking சேமிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.",
+    "hi": "माफ़ कीजिए, अभी booking save नहीं हो सकी। कृपया दोबारा कोशिश करें।",
+    "ml": "ക്ഷമിക്കണം, ഇപ്പോൾ ബുക്കിംഗ് സേവ് ചെയ്യാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കൂ.",
+}
+
+BOOKING_ERROR_MESSAGES = {
+    "en": "Sorry, I had a problem saving your booking. Please call back shortly.",
+    "ta": "மன்னிக்கவும், booking சேமிக்கும்போது பிரச்சினை ஏற்பட்டது. சற்று நேரத்தில் மீண்டும் அழைக்கவும்.",
+    "hi": "माफ़ कीजिए, booking save करते समय कोई समस्या आई। थोड़ी देर में दोबारा call करें।",
+    "ml": "ക്ഷമിക്കണം, ബുക്കിംഗ് സേവ് ചെയ്യുമ്പോൾ പ്രശ്നം ഉണ്ടായി. അൽപ്പ സമയത്തിനുള്ളിൽ വീണ്ടും വിളിക്കൂ.",
+}
+
+GOODBYE_MESSAGES = {
+    "en": "Thank you for calling SpeedCare. Goodbye!",
+    "ta": "SpeedCare-ஐ அழைத்ததற்கு நன்றி. வணக்கம்!",
+    "hi": "SpeedCare को call करने के लिए धन्यवाद। अलविदा!",
+    "ml": "SpeedCare-ൽ വിളിച்ചതിന് നന്ദി. ഗുഡ്ബൈ!",
 }

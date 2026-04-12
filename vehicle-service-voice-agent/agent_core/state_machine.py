@@ -9,8 +9,9 @@ import re
 import httpx
 
 from agent_core.prompts import (
+    BOOKING_CONFIRMED_TEMPLATE, BOOKING_DB_ERROR_MESSAGES, BOOKING_ERROR_MESSAGES,
     BOOKING_SYSTEM_DYNAMIC, BOOKING_SYSTEM_PROMPT, BOOKING_SYSTEM_STATIC,
-    CLARIFICATION_MESSAGES,
+    CLARIFICATION_MESSAGES, DENIAL_MESSAGES, GOODBYE_MESSAGES,
     CONFIRMATION_SYSTEM_DYNAMIC, CONFIRMATION_SYSTEM_PROMPT, CONFIRMATION_SYSTEM_STATIC,
     GREETING_SYSTEM_DYNAMIC, GREETING_SYSTEM_PROMPT, GREETING_SYSTEM_STATIC,
 )
@@ -182,15 +183,16 @@ class ConversationalAgent:
         collected_slots = session.get("collected_slots", {})
         intent = session.get("intent")
 
+        lang_code = session.get("language", "en")
         if state == "greeting":
-            return await self._greeting_turn(transcript, session, language)
+            return await self._greeting_turn(transcript, session, language, lang_code)
         elif state == "collecting":
-            return await self._booking_turn(transcript, session, language, intent, collected_slots)
+            return await self._booking_turn(transcript, session, language, lang_code, intent, collected_slots)
         elif state == "confirming":
-            return await self._confirmation_turn(transcript, session, language, collected_slots)
+            return await self._confirmation_turn(transcript, session, language, lang_code, collected_slots)
         else:
             return {
-                "response_text": "Thank you for calling SpeedCare. Goodbye!",
+                "response_text": GOODBYE_MESSAGES.get(lang_code, GOODBYE_MESSAGES["en"]),
                 "next_agent_state": "closing",
                 "intent": intent,
                 "updated_slots": collected_slots,
@@ -200,7 +202,7 @@ class ConversationalAgent:
                 "llm_latency_ms": 0,
             }
 
-    async def _greeting_turn(self, transcript: str, session: dict, language: str) -> dict:
+    async def _greeting_turn(self, transcript: str, session: dict, language: str, lang_code: str = "en") -> dict:
         system_dynamic = GREETING_SYSTEM_DYNAMIC.format(
             language=language,
             today=date.today().isoformat(),
@@ -212,6 +214,7 @@ class ConversationalAgent:
             "", session["conversation_history"], transcript, tools,
             system_static=GREETING_SYSTEM_STATIC,
             system_dynamic=system_dynamic,
+            lang_code=lang_code,
         )
 
         intent = "booking_new"
@@ -231,7 +234,7 @@ class ConversationalAgent:
             "llm_latency_ms": latency,
         }
 
-    async def _booking_turn(self, transcript: str, session: dict, language: str, intent: str, collected_slots: dict) -> dict:
+    async def _booking_turn(self, transcript: str, session: dict, language: str, lang_code: str, intent: str, collected_slots: dict) -> dict:
         # Deterministic slot extraction from the transcript itself.
         # We do this BEFORE calling the LLM so the prompt sees the freshly
         # filled slots and asks for the next missing one. We don't rely on
@@ -266,6 +269,7 @@ class ConversationalAgent:
             "", session["conversation_history"], transcript, tools,
             system_static=BOOKING_SYSTEM_STATIC,
             system_dynamic=system_dynamic,
+            lang_code=lang_code,
         )
 
         # Process tool results to update slots
@@ -321,7 +325,7 @@ class ConversationalAgent:
             "llm_latency_ms": latency,
         }
 
-    async def _confirmation_turn(self, transcript: str, session: dict, language: str, collected_slots: dict) -> dict:
+    async def _confirmation_turn(self, transcript: str, session: dict, language: str, lang_code: str, collected_slots: dict) -> dict:
         """Confirmation stage. We do NOT depend on Claude calling
         create_booking — we detect a yes/no in the transcript ourselves and
         invoke async_create_booking directly. This was the second half of
@@ -351,7 +355,7 @@ class ConversationalAgent:
         # correct a slot. Don't bother calling the LLM here at all.
         if is_deny:
             return {
-                "response_text": "No problem. What would you like to change?",
+                "response_text": DENIAL_MESSAGES.get(lang_code, DENIAL_MESSAGES["en"]),
                 "next_agent_state": "collecting",
                 "intent": session.get("intent"),
                 "updated_slots": collected_slots,
@@ -367,7 +371,7 @@ class ConversationalAgent:
             if not self.db:
                 logger.error("confirm_yes_but_no_db_session")
                 return {
-                    "response_text": "Sorry, I couldn't save the booking just now. Please try again.",
+                    "response_text": BOOKING_DB_ERROR_MESSAGES.get(lang_code, BOOKING_DB_ERROR_MESSAGES["en"]),
                     "next_agent_state": "closing",
                     "intent": session.get("intent"),
                     "updated_slots": collected_slots,
@@ -390,7 +394,7 @@ class ConversationalAgent:
             except Exception as e:
                 logger.exception("create_booking_failed")
                 return {
-                    "response_text": "Sorry, I had a problem saving your booking. Please call back shortly.",
+                    "response_text": BOOKING_ERROR_MESSAGES.get(lang_code, BOOKING_ERROR_MESSAGES["en"]),
                     "next_agent_state": "closing",
                     "intent": session.get("intent"),
                     "updated_slots": collected_slots,
@@ -403,7 +407,7 @@ class ConversationalAgent:
             if not booking_result.get("valid"):
                 logger.error("create_booking_invalid", extra={"result": booking_result})
                 return {
-                    "response_text": f"Sorry, I couldn't book that: {booking_result.get('error', 'unknown error')}",
+                    "response_text": BOOKING_ERROR_MESSAGES.get(lang_code, BOOKING_ERROR_MESSAGES["en"]),
                     "next_agent_state": "closing",
                     "intent": session.get("intent"),
                     "updated_slots": collected_slots,
@@ -416,10 +420,8 @@ class ConversationalAgent:
             ref = booking_result["booking_ref"]
             slot = booking_result.get("appointment_slot", "")
             appt_date = booking_result.get("appointment_date", collected_slots.get("preferred_date"))
-            reply = (
-                f"Booked! Your reference is {ref}. "
-                f"We'll see you on {appt_date} at {slot}. Thank you for choosing SpeedCare!"
-            )
+            tmpl = BOOKING_CONFIRMED_TEMPLATE.get(lang_code, BOOKING_CONFIRMED_TEMPLATE["en"])
+            reply = tmpl.format(ref=ref, date=appt_date, slot=slot)
             logger.info("booking_persisted", extra={"booking_ref": ref})
 
             return {
@@ -444,6 +446,7 @@ class ConversationalAgent:
             "", session["conversation_history"], transcript, [],
             system_static=CONFIRMATION_SYSTEM_STATIC,
             system_dynamic=system_dynamic,
+            lang_code=lang_code,
         )
         return {
             "response_text": response or "Could you please say yes or no?",
@@ -464,6 +467,7 @@ class ConversationalAgent:
         tools: list[dict],
         system_static: str | None = None,
         system_dynamic: str | None = None,
+        lang_code: str = "en",
     ) -> tuple[str, int, list[dict]]:
         """Call Claude Haiku once. Returns (response_text, latency_ms, tool_calls).
 
@@ -475,13 +479,13 @@ class ConversationalAgent:
             ~3-5x faster than fresh tokens). The dynamic block carries the
             per-turn state and is NOT cached.
 
-        History window is small on purpose: we only keep the last 6 messages.
+        History window is small on purpose: we only keep the last 4 messages.
         Each extra historical turn adds prompt tokens that the model has to
         process, which directly maps to LLM latency. Slot-filling rarely
         needs more than 2-3 turns of context.
         """
         messages = []
-        for h in history[-6:]:
+        for h in history[-4:]:
             messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": current_transcript})
 
@@ -525,6 +529,7 @@ class ConversationalAgent:
                 headers={
                     "x-api-key": settings.ANTHROPIC_API_KEY,
                     "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "prompt-caching-2024-07-31",
                     "content-type": "application/json",
                 },
                 json=body,
@@ -537,7 +542,7 @@ class ConversationalAgent:
             body_text = getattr(getattr(e, "response", None), "text", "")
             logger.error("llm_call_failed: %s | anthropic_body: %s", str(e), body_text)
             return CLARIFICATION_MESSAGES.get(
-                "en", "Sorry, please try again."
+                lang_code, CLARIFICATION_MESSAGES["en"]
             ), latency, []
 
         latency = int((time.monotonic() - start) * 1000)
@@ -618,7 +623,7 @@ class ConversationalAgent:
         out["tool_calls"] = []
         out["latency_ms"] = 0
 
-        messages = [{"role": h["role"], "content": h["content"]} for h in history[-6:]]
+        messages = [{"role": h["role"], "content": h["content"]} for h in history[-4:]]
         messages.append({"role": "user", "content": current_transcript})
 
         system_blocks = [
@@ -651,6 +656,7 @@ class ConversationalAgent:
                 headers={
                     "x-api-key": settings.ANTHROPIC_API_KEY,
                     "anthropic-version": "2023-06-01",
+                    "anthropic-beta": "prompt-caching-2024-07-31",
                     "content-type": "application/json",
                 },
                 json=payload,
@@ -749,7 +755,8 @@ class ConversationalAgent:
             async for chunk in self._confirmation_turn_stream(transcript, session):
                 yield chunk
         else:
-            text = "Thank you for calling SpeedCare. Goodbye!"
+            lang_code = session.get("language", "en")
+            text = GOODBYE_MESSAGES.get(lang_code, GOODBYE_MESSAGES["en"])
             session["agent_state"] = "closing"
             session["conversation_history"].append({"role": "user", "content": transcript})
             session["conversation_history"].append({"role": "assistant", "content": text})
@@ -872,7 +879,8 @@ class ConversationalAgent:
     async def _confirmation_turn_stream(self, transcript: str, session: dict):
         """Three paths: deny / affirm / ambiguous. Only ambiguous calls the LLM
         — the other two yield a single deterministic chunk and skip Claude."""
-        language = LANGUAGE_NAMES.get(session.get("language", "en"), "English")
+        lang_code = session.get("language", "en")
+        language = LANGUAGE_NAMES.get(lang_code, "English")
         collected_slots = dict(session.get("collected_slots", {}))
 
         lower = transcript.lower().strip()
@@ -894,7 +902,7 @@ class ConversationalAgent:
 
         # Path 1 — deny: bounce to collecting, no LLM, no TTS streaming
         if is_deny:
-            text = "No problem. What would you like to change?"
+            text = DENIAL_MESSAGES.get(lang_code, DENIAL_MESSAGES["en"])
             session["agent_state"] = "collecting"
             session["conversation_history"].append({"role": "user", "content": transcript})
             session["conversation_history"].append({"role": "assistant", "content": text})
@@ -904,7 +912,7 @@ class ConversationalAgent:
         # Path 2 — affirm: persist booking, deterministic reply, no LLM
         if is_affirm:
             if not self.db:
-                text = "Sorry, I couldn't save the booking just now. Please try again."
+                text = BOOKING_DB_ERROR_MESSAGES.get(lang_code, BOOKING_DB_ERROR_MESSAGES["en"])
                 session["agent_state"] = "closing"
                 yield text
                 return
@@ -920,14 +928,14 @@ class ConversationalAgent:
                 )
             except Exception:
                 logger.exception("create_booking_failed_stream")
-                text = "Sorry, I had a problem saving your booking. Please call back shortly."
+                text = BOOKING_ERROR_MESSAGES.get(lang_code, BOOKING_ERROR_MESSAGES["en"])
                 session["agent_state"] = "closing"
                 yield text
                 return
 
             if not booking_result.get("valid"):
                 logger.error("create_booking_invalid_stream", extra={"result": booking_result})
-                text = f"Sorry, I couldn't book that: {booking_result.get('error', 'unknown error')}"
+                text = BOOKING_ERROR_MESSAGES.get(lang_code, BOOKING_ERROR_MESSAGES["en"])
                 session["agent_state"] = "closing"
                 yield text
                 return
@@ -935,10 +943,8 @@ class ConversationalAgent:
             ref = booking_result["booking_ref"]
             slot = booking_result.get("appointment_slot", "")
             appt_date = booking_result.get("appointment_date", collected_slots.get("preferred_date"))
-            text = (
-                f"Booked! Your reference is {ref}. "
-                f"We'll see you on {appt_date} at {slot}. Thank you for choosing SpeedCare!"
-            )
+            tmpl = BOOKING_CONFIRMED_TEMPLATE.get(lang_code, BOOKING_CONFIRMED_TEMPLATE["en"])
+            text = tmpl.format(ref=ref, date=appt_date, slot=slot)
             session["agent_state"] = "closing"
             session["conversation_history"].append({"role": "user", "content": transcript})
             session["conversation_history"].append({"role": "assistant", "content": text})
