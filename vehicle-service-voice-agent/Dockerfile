@@ -46,7 +46,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8000
 
 # Default command for API server
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+# Uses PORT env var (injected by Railway/PaaS) or falls back to 8000
+CMD ["sh", "-c", "python init_db.py && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2"]
 
 # Worker stage for LiveKit voice agent
 FROM base AS worker
