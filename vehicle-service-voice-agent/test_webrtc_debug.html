@@ -226,7 +226,7 @@
         <div id="connState"><span class="badge badge-idle">IDLE</span></div>
     </div>
 
-    <!-- ── Debug log ── -->
+    <!-- ── Debug Log ── -->
     <div class="card">
         <h2>Debug Log</h2>
         <div class="debug-box" id="debugLog"></div>
@@ -307,7 +307,7 @@
         if (pace)        body.pace        = parseFloat(pace);
         if (sttMode)     body.stt_mode    = sttMode;
 
-        const response = await fetch('http://localhost:8000/api/v1/auth/livekit-token', {
+        const response = await fetch('http://91.203.134.231/api/v1/auth/livekit-token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -320,8 +320,6 @@
         }
 
         const data = await response.json();
-        log('Token received', 'ok');
-
         const token = data.data.token;
         const decoded = decodeJWT(token);
         const expDate = decoded.exp ? new Date(decoded.exp * 1000) : null;
