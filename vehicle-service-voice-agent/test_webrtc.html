@@ -149,7 +149,7 @@
 
     <script>
         // LiveKit configuration
-        const LIVEKIT_URL = 'wss://ruka-voice-agent-rim8gdnh.livekit.cloud';
+        const LIVEKIT_URL = 'wss://voice-agent-0dya3o9x.livekit.cloud';
 
         let room = null;
         let localTrack = null;
@@ -176,8 +176,12 @@
             document.getElementById('connectionState').textContent = state;
         }
 
+        const API_BASE_URL = window.location.port === '8000'
+            ? window.location.origin
+            : `${window.location.protocol}//${window.location.hostname}:8000`;
+
         async function getToken(roomName, participantName) {
-            const response = await fetch('http://localhost:8000/api/v1/auth/livekit-token', {
+            const response = await fetch(`${API_BASE_URL}/api/v1/auth/livekit-token`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
