@@ -112,3 +112,8 @@ Paste the returned room name into `test_webrtc_debug.html`, allow microphone acc
 - `simple_agent.py` is the best current entrypoint for development.
 - `agent.py` is still the older starter example and should not be used as the main SpeedCare runtime.
 - The browser test pages currently contain a hardcoded `LIVEKIT_URL`. If your LiveKit URL is different, update the `LIVEKIT_URL` constant in the HTML test file you use.
+
+## Production Deployment (Ubuntu)
+
+For a step-by-step guide to run this on a Linux server (systemd + Nginx + TLS),
+see `DEPLOYMENT.md`.

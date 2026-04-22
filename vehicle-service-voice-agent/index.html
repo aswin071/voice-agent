@@ -240,7 +240,10 @@
 </div>
 
 <script>
-    const LIVEKIT_URL = 'wss://ruka-voice-agent-rim8gdnh.livekit.cloud';
+    const API_BASE_URL = window.location.port === '8000'
+        ? window.location.origin
+        : 'http://localhost:8000';
+    let livekitUrl = null;
     let room = null;
     let localTrack = null;
 
@@ -307,7 +310,7 @@
         if (pace)        body.pace        = parseFloat(pace);
         if (sttMode)     body.stt_mode    = sttMode;
 
-        const response = await fetch('/api/v1/auth/livekit-token', {
+        const response = await fetch(`${API_BASE_URL}/api/v1/auth/livekit-token`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -331,6 +334,12 @@
         if (expDate) {
             log(`Token expires: ${expDate.toISOString()}  valid: ${expDate > new Date()}`);
         }
+        livekitUrl = data.data.livekit_url;
+        if (!livekitUrl) {
+            throw new Error('LIVEKIT_URL is missing from backend configuration');
+        }
+
+        log(`LiveKit URL from backend: ${livekitUrl}`);
         return token;
     }
 
@@ -349,8 +358,6 @@
         document.getElementById('connectBtn').disabled = true;
         setConnState('<span class="badge badge-idle">CONNECTING…</span>');
         log('=== STARTING CONNECTION ===');
-        log(`LiveKit URL: ${LIVEKIT_URL}`);
-
         try {
             // 1. Token (triggers agent dispatch with full metadata)
             const token = await getToken(roomName, identity, language, voice, temperature, pace, sttMode);
@@ -387,7 +394,7 @@
 
             // 4. Connect
             log('Connecting to LiveKit…');
-            await room.connect(LIVEKIT_URL, token);
+            await room.connect(livekitUrl, token);
             log('WebSocket connection established', 'ok');
 
             // 5. Microphone — echo cancellation + noise suppression prevent

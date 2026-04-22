@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "claude-haiku-4-5-20251001"
     LLM_TEMPERATURE: float = 0.3
     LLM_MAX_OUTPUT_TOKENS: int = 100
+    LLM_HTTP_TIMEOUT: float = 8.0
 
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://speedcare:speedcare@localhost:5432/speedcare"
@@ -76,6 +77,19 @@ class Settings(BaseSettings):
     WORKSHOP_ADDRESS: str = "SpeedCare, 45 Anna Salai, Chennai 600002"
     DAILY_BOOKING_CAPACITY: int = 20
     BOOKING_WINDOW_DAYS: int = 30
+
+    # Voice pipeline tuning
+    AGENT_ENDPOINTING_MIN_DELAY: float = 0.45
+    AGENT_ENDPOINTING_MAX_DELAY: float = 1.8
+    AGENT_MIN_SILENCE_EN: float = 0.40
+    AGENT_MIN_SILENCE_NON_EN: float = 0.55
+    AGENT_INTERRUPT_MIN_DURATION: float = 0.8
+    AGENT_INTERRUPT_MIN_WORDS: int = 2
+    AGENT_FALSE_INTERRUPT_TIMEOUT: float = 1.2
+    AGENT_AEC_WARMUP_DURATION: float = 4.0
+    AGENT_ALLOW_INTERRUPTION: bool = False
+    AGENT_PREEMPTIVE_GENERATION: bool = False
+    AGENT_BUFFER_AUDIO_WHILE_SPEAKING: bool = True
 
     # Sentry
     SENTRY_DSN: str = ""

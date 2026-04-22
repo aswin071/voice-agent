@@ -216,6 +216,7 @@ async def livekit_token(
         data={
             "token": token,
             "room_name": body.call_sid,
+            "livekit_url": settings.LIVEKIT_URL,
         },
         request_id=request_id,
     )

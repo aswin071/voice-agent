@@ -36,6 +36,7 @@ from livekit.agents import (
     llm,
 )
 from livekit.agents.voice.room_io import RoomOptions
+from livekit.agents.voice.turn import TurnHandlingOptions
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
 from livekit.plugins import silero
 
@@ -99,6 +100,22 @@ VOICE_PROFILES: dict[str, dict] = {
 # reused by all subsequent concurrent calls. None = not yet resolved.
 _CACHED_DICT_ID: str | None = None
 _DICT_RESOLVED: bool = False
+
+
+def _build_async_client(*, timeout: float, limits: httpx.Limits) -> httpx.AsyncClient:
+    """Prefer HTTP/2, but don't crash the worker if `h2` isn't installed."""
+    try:
+        return httpx.AsyncClient(
+            timeout=timeout,
+            http2=True,
+            limits=limits,
+        )
+    except ImportError:
+        logger.warning("http2_not_available_falling_back_to_http1")
+        return httpx.AsyncClient(
+            timeout=timeout,
+            limits=limits,
+        )
 
 
 # Hardcoded greetings keyed by language. The first turn is spoken by the
@@ -228,7 +245,6 @@ class SpeedCareAgent(Agent):
         )
         logger.info("[LATENCY      ] brain_turn=%dms  (TTS overlapped with generation)", turn_ms)
         logger.info("[TTS  >> caller] %s", reply)
-        self._state["turn_count"] += 1
 
     @staticmethod
     def _latest_user_text(chat_ctx: llm.ChatContext) -> str:
@@ -295,9 +311,19 @@ async def entrypoint(ctx: JobContext) -> None:
     # Long-lived HTTP client shared across all Anthropic calls in this call.
     # Connection reuse alone saves ~50-100ms per turn (TLS handshake + TCP).
     # 8s timeout matches the LLM call's own timeout.
-    http = httpx.AsyncClient(
-        timeout=8.0,
+    http = _build_async_client(
+        timeout=settings.LLM_HTTP_TIMEOUT,
         limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=60.0),
+    )
+    # Shared Sarvam transport reduces per-turn connection churn because STT and
+    # TTS hit the same host in sequence on most turns.
+    sarvam_http = _build_async_client(
+        timeout=30.0,
+        limits=httpx.Limits(
+            max_connections=8,
+            max_keepalive_connections=4,
+            keepalive_expiry=90.0,
+        ),
     )
 
     async def _shutdown():
@@ -307,6 +333,10 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.exception("db_close_failed")
         try:
             await http.aclose()
+        except Exception:
+            pass
+        try:
+            await sarvam_http.aclose()
         except Exception:
             pass
 
@@ -386,17 +416,50 @@ async def entrypoint(ctx: JobContext) -> None:
     # ── VAD endpointing ────────────────────────────────────────────────────
     # Non-English speakers tend to pause longer mid-sentence; give them 50ms
     # more silence budget to avoid premature endpointing.
-    silence = 0.25 if lang == "en" else 0.30
+    silence = (
+        settings.AGENT_MIN_SILENCE_EN
+        if lang == "en"
+        else settings.AGENT_MIN_SILENCE_NON_EN
+    )
+    turn_handling: TurnHandlingOptions = {
+        "endpointing": {
+            "min_delay": settings.AGENT_ENDPOINTING_MIN_DELAY,
+            "max_delay": settings.AGENT_ENDPOINTING_MAX_DELAY,
+        },
+        "interruption": {
+            "enabled": settings.AGENT_ALLOW_INTERRUPTION,
+            "discard_audio_if_uninterruptible": not settings.AGENT_BUFFER_AUDIO_WHILE_SPEAKING,
+            "min_duration": settings.AGENT_INTERRUPT_MIN_DURATION,
+            "min_words": settings.AGENT_INTERRUPT_MIN_WORDS,
+            "resume_false_interruption": True,
+            "false_interruption_timeout": settings.AGENT_FALSE_INTERRUPT_TIMEOUT,
+        },
+    }
+    logger.info(
+        "turn_tuning lang=%s vad_min_silence=%.2f endpoint_min=%.2f endpoint_max=%.2f interruption_enabled=%s buffer_audio_while_speaking=%s interrupt_min=%.2f interrupt_words=%d false_interrupt_timeout=%.2f preemptive_generation=%s",
+        lang,
+        silence,
+        settings.AGENT_ENDPOINTING_MIN_DELAY,
+        settings.AGENT_ENDPOINTING_MAX_DELAY,
+        settings.AGENT_ALLOW_INTERRUPTION,
+        settings.AGENT_BUFFER_AUDIO_WHILE_SPEAKING,
+        settings.AGENT_INTERRUPT_MIN_DURATION,
+        settings.AGENT_INTERRUPT_MIN_WORDS,
+        settings.AGENT_FALSE_INTERRUPT_TIMEOUT,
+        settings.AGENT_PREEMPTIVE_GENERATION,
+    )
     session = AgentSession(
         vad=silero.VAD.load(
             min_silence_duration=silence,
-            activation_threshold=0.3,   # lower = more sensitive (default 0.5)
+            activation_threshold=0.45,   # avoid reacting to tiny bursts / echo
         ),
-        min_endpointing_delay=0.1,
+        preemptive_generation=settings.AGENT_PREEMPTIVE_GENERATION,
+        turn_handling=turn_handling,
         stt=SarvamSTT(
             language=lang,
             model=settings.SARVAM_STT_MODEL,
             mode=effective_stt_mode,
+            http_client=sarvam_http,
         ),
         llm=_StubLLM(),
         tts=SarvamTTS(
@@ -408,9 +471,11 @@ async def entrypoint(ctx: JobContext) -> None:
             output_codec=profile["output_codec"],
             temperature=effective_temperature,
             dict_id=_CACHED_DICT_ID,
+            http_client=sarvam_http,
             # pitch / loudness / enable_preprocessing are bulbul:v2 only —
             # SarvamTTS will NOT send them to the v3 endpoint.
         ),
+        aec_warmup_duration=settings.AGENT_AEC_WARMUP_DURATION,
     )
 
     # noise_cancellation.BVCTelephony() is a paid LiveKit Cloud feature.
