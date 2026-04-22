@@ -240,9 +240,10 @@
 </div>
 
 <script>
-    const API_BASE_URL = 'http://91.203.134.231:8000';
-;
-    let livekitUrl = null;
+    const LIVEKIT_URL = 'wss://voice-agent-0dya3o9x.livekit.cloud';
+    const API_BASE_URL = window.location.port === '8000'
+        ? window.location.origin
+        : 'http://localhost:8000';
     let room = null;
     let localTrack = null;
 
@@ -333,12 +334,6 @@
         if (expDate) {
             log(`Token expires: ${expDate.toISOString()}  valid: ${expDate > new Date()}`);
         }
-        livekitUrl = data.data.livekit_url;
-        if (!livekitUrl) {
-            throw new Error('LIVEKIT_URL is missing from backend configuration');
-        }
-
-        log(`LiveKit URL from backend: ${livekitUrl}`);
         return token;
     }
 
@@ -357,6 +352,8 @@
         document.getElementById('connectBtn').disabled = true;
         setConnState('<span class="badge badge-idle">CONNECTING…</span>');
         log('=== STARTING CONNECTION ===');
+        log(`LiveKit URL: ${LIVEKIT_URL}`);
+
         try {
             // 1. Token (triggers agent dispatch with full metadata)
             const token = await getToken(roomName, identity, language, voice, temperature, pace, sttMode);
@@ -393,7 +390,7 @@
 
             // 4. Connect
             log('Connecting to LiveKit…');
-            await room.connect(livekitUrl, token);
+            await room.connect(LIVEKIT_URL, token);
             log('WebSocket connection established', 'ok');
 
             // 5. Microphone — echo cancellation + noise suppression prevent
