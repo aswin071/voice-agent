@@ -20,6 +20,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
+from urllib.parse import urlsplit
 
 import redis.asyncio as aioredis
 import structlog
@@ -155,6 +156,45 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _is_same_host_origin(request: Request) -> tuple[bool, str | None]:
+    origin = request.headers.get("origin")
+    if not origin or not settings.ALLOW_SAME_HOST_CORS:
+        return False, None
+
+    try:
+        origin_host = urlsplit(origin).hostname
+    except Exception:
+        return False, None
+
+    request_host = (request.url.hostname or "").strip().lower()
+    if not origin_host or not request_host:
+        return False, None
+
+    if origin_host.lower() != request_host:
+        return False, None
+
+    return True, origin
+
+
+@app.middleware("http")
+async def same_host_cors_middleware(request: Request, call_next):
+    same_host, origin = _is_same_host_origin(request)
+
+    if same_host and request.method == "OPTIONS":
+        response = Response(status_code=200)
+    else:
+        response = await call_next(request)
+
+    if same_host and origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
+
+    return response
 
 
 @app.middleware("http")

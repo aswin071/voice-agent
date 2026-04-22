@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     LLM_HTTP_TIMEOUT: float = 8.0
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://speedcare:speedcare@localhost:5432/speedcare"
+    DATABASE_URL: str = "postgresql+asyncpg://admin:admin@localhost:5432/speedcare"
     DB_POOL_MIN: int = 3
     DB_POOL_MAX: int = 15
 
@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     # CORS — comma-separated list of allowed origins
     # Example: "https://app.speedcare.in,https://admin.speedcare.in"
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:8000"
+    ALLOW_SAME_HOST_CORS: bool = True
 
     # App
     APP_NAME: str = "SpeedCare Voice Agent"
