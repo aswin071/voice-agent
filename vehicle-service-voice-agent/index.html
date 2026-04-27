@@ -3,240 +3,1136 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SpeedCare Voice Agent - DEBUG MODE</title>
+    <title>SpeedCare Voice Agent - Debug Core</title>
     <script src="https://cdn.jsdelivr.net/npm/livekit-client@2.0.0/dist/livekit-client.umd.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
-        .container { max-width: 960px; margin: 0 auto; }
-        h1 { color: #4ec9b0; margin-bottom: 20px; }
-        h2 { color: #9cdcfe; font-size: 13px; margin-bottom: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
-
-        .card {
-            background: #252526; border: 1px solid #3e3e42;
-            border-radius: 6px; padding: 16px; margin-bottom: 14px;
+        :root {
+            --bg: #0c0d0e;
+            --panel: #171818;
+            --panel-2: #1e1e1f;
+            --panel-3: #242526;
+            --line: #253033;
+            --line-strong: #123f45;
+            --cyan: #12d8ee;
+            --cyan-2: #00f0ff;
+            --green: #42f184;
+            --green-dim: #0d2b20;
+            --text: #f2f2f2;
+            --muted: #87909b;
+            --muted-2: #5c646d;
+            --warn: #ffd166;
+            --error: #ff6b6b;
+            --code-bg: #061d1d;
+            --shadow: 0 0 0 1px rgba(18, 216, 238, 0.08), 0 18px 40px rgba(0, 0, 0, 0.28);
         }
-        .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
 
-        label { display: block; color: #9cdcfe; font-size: 11px; margin-bottom: 4px; margin-top: 10px; }
-        label:first-child { margin-top: 0; }
-
-        input, select {
-            padding: 9px 10px; width: 100%;
-            background: #3c3c3c; color: #d4d4d4;
-            border: 1px solid #555; border-radius: 4px;
-            font-family: monospace; font-size: 13px;
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
-        input:focus, select:focus { outline: none; border-color: #4ec9b0; }
+
+        html {
+            min-height: 100%;
+            background: var(--bg);
+        }
+
+        body {
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 72% -20%, rgba(18, 216, 238, 0.08), transparent 30%),
+                linear-gradient(90deg, #0c0d0e 0, #0c0d0e 320px, #0f1010 320px, #0f1010 100%);
+            color: var(--text);
+            font-family: "Inter", "Segoe UI", Arial, sans-serif;
+            letter-spacing: 0;
+        }
+
+        button,
+        input,
+        select {
+            font: inherit;
+        }
+
+        .app-shell {
+            display: grid;
+            grid-template-columns: 320px minmax(0, 1fr);
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #202628;
+            background: #0f1011;
+        }
+
+        .node-card {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 80px 30px 36px;
+        }
+
+        .node-icon,
+        .panel-icon,
+        .status-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex: 0 0 auto;
+            color: var(--cyan);
+            border: 1px solid rgba(18, 216, 238, 0.5);
+            background: rgba(18, 216, 238, 0.12);
+        }
+
+        .node-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            font-size: 21px;
+        }
+
+        .node-title {
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            line-height: 1;
+        }
+
+        .node-subtitle {
+            margin-top: 8px;
+            color: var(--cyan);
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+        }
+
+        .new-connection {
+            width: calc(100% - 40px);
+            margin: 6px 20px 30px;
+            height: 46px;
+            border: 0;
+            border-radius: 3px;
+            background: var(--cyan);
+            color: #062328;
+            cursor: default;
+            font-size: 15px;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        .nav {
+            display: grid;
+            gap: 2px;
+        }
+
+        .nav-item {
+            display: grid;
+            grid-template-columns: 44px 1fr;
+            align-items: center;
+            min-height: 62px;
+            padding: 0 22px;
+            color: #7d8490;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .nav-item.active {
+            color: var(--cyan);
+            border-left: 5px solid var(--cyan);
+            background: rgba(18, 216, 238, 0.13);
+            padding-left: 17px;
+        }
+
+        .nav-glyph {
+            color: currentColor;
+            font-size: 20px;
+        }
+
+        .sidebar-bottom {
+            margin-top: auto;
+            padding: 28px 20px 34px;
+            border-top: 1px solid #202020;
+        }
+
+        .main {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            display: grid;
+            grid-template-columns: minmax(240px, 1fr) auto;
+            align-items: center;
+            height: 74px;
+            padding: 0 30px;
+            border-bottom: 1px solid #243033;
+            background: rgba(13, 22, 21, 0.94);
+            backdrop-filter: blur(14px);
+        }
+
+        .brand-row {
+            display: flex;
+            align-items: center;
+            gap: 36px;
+            min-width: 0;
+        }
+
+        .brand {
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 26px;
+            font-weight: 900;
+            letter-spacing: 0.1em;
+            white-space: nowrap;
+        }
+
+        .top-tabs {
+            display: flex;
+            align-items: center;
+            gap: 28px;
+            color: #a3a8b1;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .top-tab {
+            min-height: 74px;
+            display: inline-flex;
+            align-items: center;
+            border-bottom: 3px solid transparent;
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .top-tab.active {
+            color: var(--cyan);
+            border-bottom-color: var(--cyan);
+        }
+
+        .top-actions {
+            display: flex;
+            align-items: center;
+            gap: 22px;
+        }
+
+        .search {
+            position: relative;
+            width: 154px;
+        }
+
+        .search input {
+            width: 100%;
+            height: 42px;
+            padding: 0 14px 0 48px;
+            border: 1px solid #303236;
+            border-radius: 15px;
+            background: #171516;
+            color: #a4a8b2;
+            font-weight: 700;
+        }
+
+        .search::before {
+            content: "";
+            position: absolute;
+            left: 18px;
+            top: 50%;
+            width: 13px;
+            height: 13px;
+            border: 3px solid #a4a8b2;
+            border-radius: 50%;
+            transform: translateY(-55%);
+        }
+
+        .search::after {
+            content: "";
+            position: absolute;
+            left: 32px;
+            top: 26px;
+            width: 11px;
+            height: 3px;
+            border-radius: 2px;
+            background: #a4a8b2;
+            transform: rotate(45deg);
+        }
+
+        .top-action {
+            border: 0;
+            background: transparent;
+            color: #a4a8b2;
+            font-size: 18px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .divider {
+            width: 1px;
+            height: 30px;
+            background: #263034;
+        }
+
+        .deploy {
+            min-width: 152px;
+            height: 42px;
+            border: 0;
+            border-radius: 3px;
+            background: var(--cyan);
+            color: #06313a;
+            font-weight: 900;
+        }
+
+        .content {
+            width: min(1220px, calc(100% - 60px));
+            margin: 32px auto 42px;
+        }
+
+        .hero {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 42px;
+        }
+
+        h1 {
+            font-size: clamp(32px, 4vw, 48px);
+            line-height: 1.05;
+            font-weight: 900;
+            letter-spacing: -0.01em;
+        }
+
+        h1 span {
+            color: var(--cyan-2);
+            font-family: Consolas, "Courier New", monospace;
+            letter-spacing: 0.08em;
+        }
+
+        .slash {
+            color: #3f4a50;
+            padding: 0 14px;
+        }
+
+        .system-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            height: 29px;
+            padding: 0 14px;
+            border: 1px solid #1b774c;
+            background: rgba(66, 241, 132, 0.12);
+            color: var(--green);
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        .system-pill::before {
+            content: "";
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #25c26f;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 386px minmax(0, 1fr);
+            gap: 30px;
+            align-items: start;
+        }
+
+        .left-column,
+        .right-column {
+            display: grid;
+            gap: 30px;
+            min-width: 0;
+        }
+
+        .panel {
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 5px;
+            background: #111313;
+            box-shadow: var(--shadow);
+        }
+
+        .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 74px;
+            padding: 18px 20px;
+            border-top: 1px solid var(--line-strong);
+            border-bottom: 1px solid #252727;
+            background: var(--panel-2);
+        }
+
+        .panel-title {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+            font-size: 24px;
+            font-weight: 900;
+        }
+
+        .panel-icon {
+            width: 26px;
+            height: 26px;
+            border: 0;
+            background: transparent;
+            font-size: 24px;
+        }
+
+        .panel-action,
+        .read-only {
+            color: var(--cyan);
+            background: transparent;
+            border: 0;
+            font-size: 14px;
+            font-weight: 800;
+        }
+
+        .read-only {
+            padding: 8px 12px;
+            border: 1px solid #3a3d40;
+            border-radius: 3px;
+            color: #8f969f;
+            font-size: 12px;
+            letter-spacing: 0.04em;
+        }
+
+        .panel-body {
+            padding: 28px 30px 30px;
+        }
+
+        .connection-form {
+            display: grid;
+            gap: 18px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #c3cbd1;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        input,
+        select {
+            width: 100%;
+            min-height: 50px;
+            padding: 0 16px;
+            border: 1px solid #414547;
+            border-radius: 2px;
+            background: #292a2b;
+            color: #f2f2f2;
+            outline: none;
+            font-size: 17px;
+            font-weight: 650;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: var(--cyan);
+            box-shadow: 0 0 0 3px rgba(18, 216, 238, 0.12);
+        }
+
+        select {
+            appearance: none;
+            background-image:
+                linear-gradient(45deg, transparent 50%, #858d98 50%),
+                linear-gradient(135deg, #858d98 50%, transparent 50%);
+            background-position:
+                calc(100% - 22px) 21px,
+                calc(100% - 15px) 21px;
+            background-size: 8px 8px, 8px 8px;
+            background-repeat: no-repeat;
+            padding-right: 42px;
+        }
+
+        optgroup,
+        option {
+            background: #242526;
+            color: #f2f2f2;
+        }
+
+        .button-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            margin-top: 30px;
+        }
 
         button {
-            padding: 10px 16px; cursor: pointer; border: none; border-radius: 4px;
-            font-family: monospace; font-size: 13px; font-weight: bold;
-            transition: background 0.15s;
+            cursor: pointer;
         }
-        .btn-connect  { background: #0e639c; color: #fff; width: 100%; margin-top: 12px; }
-        .btn-connect:hover  { background: #1177bb; }
-        .btn-connect:disabled { background: #444; color: #777; cursor: not-allowed; }
-        .btn-disconnect { background: #6b2020; color: #fff; width: 100%; margin-top: 6px; }
-        .btn-disconnect:hover { background: #8a2828; }
-        .btn-disconnect:disabled { background: #444; color: #777; cursor: not-allowed; }
 
-        .debug-box {
-            background: #1a1a1a; border: 1px solid #3e3e42;
-            border-radius: 4px; padding: 10px;
-            max-height: 280px; overflow-y: auto;
-            font-size: 11.5px; line-height: 1.6;
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.48;
         }
-        .log-time  { color: #606060; margin-right: 8px; }
-        .log-info  { color: #9cdcfe; }
-        .log-ok    { color: #4ec9b0; }
-        .log-error { color: #f48771; }
-        .log-warn  { color: #dcdcaa; }
+
+        .btn-connect,
+        .btn-disconnect {
+            min-height: 54px;
+            border-radius: 2px;
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .btn-connect {
+            border: 1px solid var(--cyan);
+            background: var(--cyan);
+            color: #061f24;
+        }
+
+        .btn-connect:hover:not(:disabled) {
+            background: #35e5f5;
+        }
+
+        .btn-disconnect {
+            border: 1px solid #4b5054;
+            background: transparent;
+            color: #f6f6f6;
+        }
+
+        .btn-disconnect:hover:not(:disabled) {
+            border-color: #70767c;
+            background: #222426;
+        }
+
+        .engine-body {
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) 330px;
+            gap: 38px;
+            align-items: start;
+        }
+
+        .control-stack {
+            display: grid;
+            gap: 18px;
+        }
+
+        .range-stack {
+            display: grid;
+            gap: 34px;
+            padding-left: 20px;
+            border-left: 1px solid #252a2d;
+        }
+
+        .range-label {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 26px;
+        }
+
+        .range-label label {
+            margin-bottom: 0;
+        }
+
+        .range-value {
+            color: var(--cyan);
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 17px;
+            font-weight: 900;
+            white-space: nowrap;
+        }
+
+        input[type="range"] {
+            height: 22px;
+            min-height: 22px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            accent-color: var(--cyan);
+        }
+
+        input[type="range"]::-webkit-slider-runnable-track {
+            height: 5px;
+            border-radius: 99px;
+            background: #3d3f41;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            width: 20px;
+            height: 20px;
+            margin-top: -7px;
+            border-radius: 50%;
+            background: var(--cyan);
+            appearance: none;
+        }
+
+        .range-minmax {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            color: #9ca3ad;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 14px;
+        }
+
+        .hint {
+            margin-top: 7px;
+            color: var(--muted-2);
+            font-size: 12px;
+            line-height: 1.45;
+        }
+
+        .dict-code,
+        .token-box,
+        .debug-box {
+            overflow: auto;
+            border: 1px solid #153b3d;
+            border-radius: 2px;
+            background: var(--code-bg);
+            color: #43ff9d;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 16px;
+            line-height: 1.55;
+        }
+
+        .dict-code {
+            min-height: 342px;
+            padding: 18px 16px;
+            white-space: pre-wrap;
+        }
+
+        .status-strip {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 20px;
+            padding: 20px;
+        }
+
+        .status-icon {
+            width: 60px;
+            height: 60px;
+            border-color: #343b3e;
+            border-radius: 3px;
+            background: #292c2e;
+            color: var(--green);
+            font-size: 26px;
+        }
+
+        .status-kicker,
+        .session-label {
+            color: #5f6871;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .socket-state {
+            margin-top: 4px;
+            color: var(--green);
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 27px;
+            font-weight: 900;
+            line-height: 1;
+        }
+
+        .socket-state span {
+            margin-left: 12px;
+            color: #8e97a0;
+            font-size: 15px;
+            font-weight: 800;
+        }
+
+        .session-id {
+            text-align: right;
+        }
+
+        .session-value {
+            margin-top: 12px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 16px;
+            color: #f4f4f4;
+        }
 
         .badge {
-            display: inline-block; padding: 3px 8px; border-radius: 3px;
-            font-size: 11px; font-weight: bold;
+            display: inline-flex;
+            align-items: center;
+            min-height: 28px;
+            padding: 4px 10px;
+            border-radius: 2px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 14px;
+            font-weight: 900;
+            letter-spacing: 0.06em;
         }
-        .badge-connected    { background: #1c4a1c; color: #4ec9b0; }
-        .badge-disconnected { background: #4a1c1c; color: #f48771; }
-        .badge-idle         { background: #3c3c3c; color: #808080; }
+
+        .badge-connected {
+            color: var(--green);
+            background: rgba(66, 241, 132, 0.12);
+            border: 1px solid rgba(66, 241, 132, 0.35);
+        }
+
+        .badge-disconnected {
+            color: var(--error);
+            background: rgba(255, 107, 107, 0.12);
+            border: 1px solid rgba(255, 107, 107, 0.35);
+        }
+
+        .badge-idle {
+            color: #a9b0b9;
+            background: rgba(160, 168, 178, 0.12);
+            border: 1px solid rgba(160, 168, 178, 0.28);
+        }
 
         .token-box {
-            background: #1a1a1a; border: 1px solid #3e3e42;
-            padding: 10px; font-size: 11px; word-break: break-all;
-            max-height: 130px; overflow-y: auto; border-radius: 4px;
+            max-height: 252px;
+            padding: 22px;
+            color: #22ffc7;
+            word-break: break-word;
         }
-        pre { margin: 0; white-space: pre-wrap; }
 
-        .hint { color: #606060; font-size: 11px; margin-top: 4px; }
-        .section-row { display: flex; gap: 10px; align-items: flex-end; }
-        .section-row > * { flex: 1; }
+        .token-box strong {
+            color: var(--cyan);
+        }
 
-        optgroup { color: #9cdcfe; }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+        }
+
+        .logs-panel {
+            grid-column: 1 / -1;
+        }
+
+        .debug-box {
+            height: 260px;
+            padding: 18px 20px;
+            color: #8f99a4;
+        }
+
+        .log-time {
+            margin-right: 18px;
+            color: #88919c;
+        }
+
+        .log-info {
+            color: #8f99a4;
+        }
+
+        .log-ok {
+            color: var(--green);
+        }
+
+        .log-error {
+            color: var(--error);
+        }
+
+        .log-warn {
+            color: var(--warn);
+        }
+
+        .log-tools {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            color: #a3aab2;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .log-tools button {
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font-weight: inherit;
+        }
+
+        @media (max-width: 1180px) {
+            .app-shell {
+                grid-template-columns: 250px minmax(0, 1fr);
+            }
+
+            body {
+                background: #0f1010;
+            }
+
+            .brand-row {
+                gap: 22px;
+            }
+
+            .top-tabs {
+                gap: 18px;
+                font-size: 16px;
+            }
+
+            .dashboard,
+            .engine-body {
+                grid-template-columns: 1fr;
+            }
+
+            .range-stack {
+                padding-left: 0;
+                border-left: 0;
+            }
+        }
+
+        @media (max-width: 860px) {
+            .app-shell {
+                display: block;
+            }
+
+            .sidebar {
+                position: static;
+                height: auto;
+            }
+
+            .node-card {
+                padding: 26px 20px 16px;
+            }
+
+            .nav {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .sidebar-bottom {
+                display: none;
+            }
+
+            .topbar {
+                position: static;
+                height: auto;
+                grid-template-columns: 1fr;
+                gap: 18px;
+                padding: 20px;
+            }
+
+            .brand-row,
+            .top-actions,
+            .hero,
+            .status-strip {
+                flex-wrap: wrap;
+            }
+
+            .top-actions {
+                justify-content: space-between;
+            }
+
+            .content {
+                width: calc(100% - 32px);
+                margin: 26px auto;
+            }
+
+            .button-row,
+            .status-strip {
+                grid-template-columns: 1fr;
+            }
+
+            .session-id {
+                text-align: left;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .nav {
+                grid-template-columns: 1fr;
+            }
+
+            .top-tabs {
+                flex-wrap: wrap;
+            }
+
+            .top-actions .divider,
+            .search {
+                display: none;
+            }
+
+            .panel-body {
+                padding: 22px 18px;
+            }
+
+            .panel-title {
+                font-size: 20px;
+            }
+
+            h1 {
+                font-size: 32px;
+            }
+        }
     </style>
 </head>
 <body>
-<div class="container">
-    <h1>🚗 SpeedCare Voice Agent — DEBUG</h1>
-
-    <!-- ── Connection setup ── -->
-    <div class="card">
-        <h2>Connection</h2>
-        <div class="grid2">
+<div class="app-shell">
+    <aside class="sidebar" aria-label="Debug navigation">
+        <div class="node-card">
+            <div class="node-icon">#</div>
             <div>
-                <label>Room Name (from dispatch)</label>
-                <input type="text" id="roomName" placeholder="e.g. room-U3bXa2Spj7dG" />
-            </div>
-            <div>
-                <label>Your Identity</label>
-                <input type="text" id="identity" value="caller-test" />
+                <div class="node-title">NODE_01</div>
+                <div class="node-subtitle">Active Session</div>
             </div>
         </div>
 
-        <button class="btn-connect" id="connectBtn" onclick="connect()">Connect</button>
-        <button class="btn-disconnect" id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
-    </div>
+        <button class="new-connection" type="button">+ New Connection</button>
 
-    <!-- ── TTS personalisation ── -->
-    <div class="card">
-        <h2>TTS Voice Settings (sent to agent on connect)</h2>
-        <div class="grid3">
-            <div>
-                <label>Language</label>
-                <select id="language" onchange="onLanguageChange()">
-                    <option value="">— server default (en) —</option>
-                    <option value="en">English (en-IN)</option>
-                    <option value="ta">Tamil (ta-IN)</option>
-                    <option value="hi">Hindi (hi-IN)</option>
-                    <option value="ml">Malayalam (ml-IN)</option>
-                </select>
-                <p class="hint">Controls STT + TTS language for this call.</p>
-            </div>
-            <div>
-                <label>STT Mode (saaras:v3)</label>
-                <select id="sttMode">
-                    <option value="">— default (transcribe) —</option>
-                    <option value="transcribe">transcribe — native script, normalised numbers</option>
-                    <option value="codemix">codemix — Hinglish/Tanglish mixed callers ★</option>
-                    <option value="verbatim">verbatim — exact words, spoken numbers</option>
-                    <option value="translate">translate → English output</option>
-                    <option value="translit">translit → Latin/Roman script</option>
-                </select>
-                <p class="hint">codemix is best for English+Indian language mixed callers.</p>
-            </div>
-            <div>
-                <label>Voice (bulbul:v3 speaker)</label>
-                <select id="voice">
-                    <option value="">— language default (ishita) —</option>
-                    <optgroup label="Female — excels across Indian languages">
-                        <option value="ishita">ishita ★ recommended</option>
-                        <option value="priya">priya ★ recommended</option>
-                        <option value="ritu">ritu</option>
-                        <option value="neha">neha</option>
-                        <option value="pooja">pooja</option>
-                        <option value="simran">simran</option>
-                        <option value="kavya">kavya</option>
-                        <option value="shreya">shreya</option>
-                        <option value="roopa">roopa</option>
-                        <option value="amelia">amelia</option>
-                        <option value="sophia">sophia</option>
-                        <option value="tanya">tanya</option>
-                        <option value="shruti">shruti</option>
-                        <option value="suhani">suhani</option>
-                        <option value="kavitha">kavitha</option>
-                        <option value="rupali">rupali</option>
-                    </optgroup>
-                    <optgroup label="Male">
-                        <option value="shubh">shubh ★ recommended male</option>
-                        <option value="aditya">aditya</option>
-                        <option value="rahul">rahul</option>
-                        <option value="rohan">rohan</option>
-                        <option value="amit">amit</option>
-                        <option value="dev">dev</option>
-                        <option value="ratan">ratan</option>
-                        <option value="varun">varun</option>
-                        <option value="manan">manan</option>
-                        <option value="sumit">sumit</option>
-                        <option value="kabir">kabir</option>
-                        <option value="aayan">aayan</option>
-                        <option value="ashutosh">ashutosh</option>
-                        <option value="advait">advait</option>
-                        <option value="anand">anand</option>
-                        <option value="tarun">tarun</option>
-                        <option value="sunny">sunny</option>
-                        <option value="mani">mani</option>
-                        <option value="gokul">gokul</option>
-                        <option value="vijay">vijay</option>
-                        <option value="mohit">mohit</option>
-                        <option value="rehan">rehan</option>
-                        <option value="soham">soham</option>
-                    </optgroup>
-                </select>
-                <p class="hint">Speaker names are case-sensitive lowercase (bulbul:v3).</p>
-            </div>
+        <nav class="nav">
+            <div class="nav-item"><span class="nav-glyph">[]</span><span>Dashboard</span></div>
+            <div class="nav-item active"><span class="nav-glyph">MI</span><span>Voice Engine</span></div>
+            <div class="nav-item"><span class="nav-glyph">BK</span><span>Dictionary</span></div>
+            <div class="nav-item"><span class="nav-glyph">JWT</span><span>JWT Debugger</span></div>
+            <div class="nav-item"><span class="nav-glyph">LG</span><span>System Logs</span></div>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <div class="nav-item"><span class="nav-glyph">DC</span><span>Docs</span></div>
+            <div class="nav-item"><span class="nav-glyph">SP</span><span>Support</span></div>
         </div>
+    </aside>
 
-        <!-- Temperature + Pace sliders -->
-        <div class="grid2" style="margin-top:14px">
-            <div>
-                <label>
-                    Expressiveness / Temperature —
-                    <span id="tempVal" style="color:#4ec9b0;font-weight:bold">0.60</span>
-                    &nbsp;<span style="color:#606060">(0.01 robotic → 1.0 very expressive)</span>
-                </label>
-                <input type="range" id="temperature" min="0.01" max="1.0" step="0.01" value="0.60"
-                       oninput="document.getElementById('tempVal').textContent = parseFloat(this.value).toFixed(2)"
-                       style="padding:4px 0; border:none; background:transparent; cursor:pointer;" />
-                <p class="hint">
-                    0.5 = professional IVR &nbsp;|&nbsp; 0.6 = warm natural (default) &nbsp;|&nbsp; 0.8 = lively storytelling
-                </p>
+    <main class="main">
+        <header class="topbar">
+            <div class="brand-row">
+                <div class="brand">AURA_VOICE_CORE</div>
+                <nav class="top-tabs" aria-label="Primary">
+                    <a class="top-tab active" href="#">Network</a>
+                    <a class="top-tab" href="#">Analytics</a>
+                    <a class="top-tab" href="#">Infrastructure</a>
+                </nav>
             </div>
-            <div>
-                <label>
-                    Pace / Speed —
-                    <span id="paceVal" style="color:#4ec9b0;font-weight:bold">1.00</span>
-                    &nbsp;<span style="color:#606060">(0.5 slow → 2.0 fast)</span>
-                </label>
-                <input type="range" id="pace" min="0.5" max="2.0" step="0.05" value="1.0"
-                       oninput="document.getElementById('paceVal').textContent = parseFloat(this.value).toFixed(2)"
-                       style="padding:4px 0; border:none; background:transparent; cursor:pointer;" />
-                <p class="hint">
-                    0.85 = clear/measured &nbsp;|&nbsp; 1.0 = natural conversation (default) &nbsp;|&nbsp; 1.2 = brisk
-                </p>
+            <div class="top-actions">
+                <div class="search">
+                    <input type="search" aria-label="Search" placeholder="Search no">
+                </div>
+                <button class="top-action" type="button" aria-label="Notifications">!</button>
+                <button class="top-action" type="button" aria-label="Settings">*</button>
+                <button class="top-action" type="button" aria-label="Help">?</button>
+                <span class="divider"></span>
+                <button class="deploy" type="button">Deploy Agent</button>
             </div>
+        </header>
+
+        <div class="content">
+            <section class="hero" aria-labelledby="page-title">
+                <h1 id="page-title">SpeedCare Voice Agent <span class="slash">/</span> <span>DEBUG CORE</span></h1>
+                <div class="system-pill">System Online</div>
+            </section>
+
+            <section class="dashboard">
+                <div class="left-column">
+                    <section class="panel" aria-labelledby="connection-title">
+                        <div class="panel-header">
+                            <div class="panel-title" id="connection-title">
+                                <span class="panel-icon">P</span>
+                                <span>Connection Protocol</span>
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="connection-form">
+                                <div>
+                                    <label for="roomName">Target Room Name</label>
+                                    <input type="text" id="roomName" placeholder="speedcare-debug-alpha">
+                                </div>
+                                <div>
+                                    <label for="identity">Client Identity (UUID)</label>
+                                    <input type="text" id="identity" value="dev_user_77x9">
+                                </div>
+                            </div>
+                            <div class="button-row">
+                                <button class="btn-connect" id="connectBtn" onclick="connect()">Connect</button>
+                                <button class="btn-disconnect" id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel" aria-labelledby="phonetic-title">
+                        <div class="panel-header">
+                            <div class="panel-title" id="phonetic-title">
+                                <span class="panel-icon">XA</span>
+                                <span>Phonetic Overrides</span>
+                            </div>
+                            <button class="panel-action" type="button">Update</button>
+                        </div>
+                        <div class="panel-body">
+                            <pre class="dict-code">{
+  "SpeedCare": "speed care",
+  "Ibuprofen": "eye-byoo-pro-fen",
+  "EKG": "ee kay jee",
+  "Otolaryngologist": "oh-toe-lair-in-gah-low-jist",
+  "ABS": "ay bee ess",
+  "KM": "kay em"
+}</pre>
+                            <label for="dictIdDisplay" style="margin-top:18px;">Dictionary Runtime ID</label>
+                            <input type="text" id="dictIdDisplay" readonly value="resolved by agent at startup">
+                            <p class="hint">SpeedCare domain terms are pre-loaded by the agent. Set SARVAM_DICT_ID in .env.local to persist across restarts.</p>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="right-column">
+                    <section class="panel" aria-labelledby="engine-title">
+                        <div class="panel-header">
+                            <div class="panel-title" id="engine-title">
+                                <span class="panel-icon">EQ</span>
+                                <span>TTS Synthesis Engine</span>
+                            </div>
+                        </div>
+                        <div class="panel-body engine-body">
+                            <div class="control-stack">
+                                <div>
+                                    <label for="language">Language Model</label>
+                                    <select id="language" onchange="onLanguageChange()">
+                                        <option value="">English (US) - server default</option>
+                                        <option value="en">English (en-IN)</option>
+                                        <option value="ta">Tamil (ta-IN)</option>
+                                        <option value="hi">Hindi (hi-IN)</option>
+                                        <option value="ml">Malayalam (ml-IN)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="sttMode">STT Mode / Decoder</label>
+                                    <select id="sttMode">
+                                        <option value="">Sarvam default - transcribe</option>
+                                        <option value="transcribe">transcribe - native script, normalized numbers</option>
+                                        <option value="codemix">codemix - mixed language callers</option>
+                                        <option value="verbatim">verbatim - exact words, spoken numbers</option>
+                                        <option value="translate">translate - English output</option>
+                                        <option value="translit">translit - Latin/Roman script</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="voice">Voice Persona</label>
+                                    <select id="voice">
+                                        <option value="">Sarvam default - ishita</option>
+                                        <optgroup label="Female voices">
+                                            <option value="ishita">ishita - recommended</option>
+                                            <option value="priya">priya - recommended</option>
+                                            <option value="ritu">ritu</option>
+                                            <option value="neha">neha</option>
+                                            <option value="pooja">pooja</option>
+                                            <option value="simran">simran</option>
+                                            <option value="kavya">kavya</option>
+                                            <option value="shreya">shreya</option>
+                                            <option value="roopa">roopa</option>
+                                            <option value="amelia">amelia</option>
+                                            <option value="sophia">sophia</option>
+                                            <option value="tanya">tanya</option>
+                                            <option value="shruti">shruti</option>
+                                            <option value="suhani">suhani</option>
+                                            <option value="kavitha">kavitha</option>
+                                            <option value="rupali">rupali</option>
+                                        </optgroup>
+                                        <optgroup label="Male voices">
+                                            <option value="shubh">shubh - recommended male</option>
+                                            <option value="aditya">aditya</option>
+                                            <option value="rahul">rahul</option>
+                                            <option value="rohan">rohan</option>
+                                            <option value="amit">amit</option>
+                                            <option value="dev">dev</option>
+                                            <option value="ratan">ratan</option>
+                                            <option value="varun">varun</option>
+                                            <option value="manan">manan</option>
+                                            <option value="sumit">sumit</option>
+                                            <option value="kabir">kabir</option>
+                                            <option value="aayan">aayan</option>
+                                            <option value="ashutosh">ashutosh</option>
+                                            <option value="advait">advait</option>
+                                            <option value="anand">anand</option>
+                                            <option value="tarun">tarun</option>
+                                            <option value="sunny">sunny</option>
+                                            <option value="mani">mani</option>
+                                            <option value="gokul">gokul</option>
+                                            <option value="vijay">vijay</option>
+                                            <option value="mohit">mohit</option>
+                                            <option value="rehan">rehan</option>
+                                            <option value="soham">soham</option>
+                                        </optgroup>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="range-stack">
+                                <div>
+                                    <div class="range-label">
+                                        <label for="temperature">Expressiveness / Temperature</label>
+                                        <span class="range-value" id="tempVal">0.81</span>
+                                    </div>
+                                    <input type="range" id="temperature" min="0.01" max="1.0" step="0.01" value="0.81"
+                                           oninput="document.getElementById('tempVal').textContent = parseFloat(this.value).toFixed(2)">
+                                    <div class="range-minmax"><span>0.0 (Robotic)</span><span>1.0 (Erratic)</span></div>
+                                </div>
+                                <div>
+                                    <div class="range-label">
+                                        <label for="pace">Pace / Speech Speed</label>
+                                        <span class="range-value"><span id="paceVal">0.95</span>x</span>
+                                    </div>
+                                    <input type="range" id="pace" min="0.5" max="2.0" step="0.05" value="0.95"
+                                           oninput="document.getElementById('paceVal').textContent = parseFloat(this.value).toFixed(2)">
+                                    <div class="range-minmax"><span>0.5x (Slow)</span><span>2.0x (Fast)</span></div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel status-strip" aria-label="LiveKit status">
+                        <div class="status-icon">::</div>
+                        <div>
+                            <div class="status-kicker">LiveKit Socket State</div>
+                            <div class="socket-state" id="connState"><span class="badge badge-idle">IDLE</span></div>
+                        </div>
+                        <div class="session-id">
+                            <div class="session-label">Session ID</div>
+                            <div class="session-value">lk_sess_9a8b7c6d5e</div>
+                        </div>
+                    </section>
+
+                    <section class="panel" aria-labelledby="jwt-title">
+                        <div class="panel-header">
+                            <div class="panel-title" id="jwt-title">
+                                <span class="panel-icon">KY</span>
+                                <span>Active JWT Payload</span>
+                            </div>
+                            <span class="read-only">READ ONLY</span>
+                        </div>
+                        <div class="token-box" id="tokenBox">No token yet</div>
+                    </section>
+                </div>
+
+                <section class="panel logs-panel" aria-labelledby="logs-title">
+                    <div class="panel-header">
+                        <div class="panel-title" id="logs-title">
+                            <span class="panel-icon">TM</span>
+                            <span>Real-time Stream Logs</span>
+                        </div>
+                        <div class="log-tools">
+                            <button type="button">Filter</button>
+                            <span>|</span>
+                            <button type="button" onclick="document.getElementById('debugLog').innerHTML = ''">Clear</button>
+                        </div>
+                    </div>
+                    <div class="debug-box" id="debugLog"></div>
+                </section>
+            </section>
         </div>
-
-        <!-- Pronunciation dictionary status -->
-        <div style="margin-top:14px">
-            <label>Pronunciation Dictionary (dict_id — active on agent side)</label>
-            <input type="text" id="dictIdDisplay" readonly value="resolved by agent at startup"
-                   style="color:#808080; cursor:default;" />
-            <p class="hint">
-                SpeedCare domain terms (ABS, AC, KM, state codes) are pre-loaded.
-                dict_id is logged by the agent worker on startup.
-                Set SARVAM_DICT_ID in .env.local to persist across restarts.
-            </p>
-        </div>
-    </div>
-
-    <!-- ── Status ── -->
-    <div class="card">
-        <h2>Status</h2>
-        <div id="connState"><span class="badge badge-idle">IDLE</span></div>
-    </div>
-
-    <!-- ── Debug Log ── -->
-    <div class="card">
-        <h2>Debug Log</h2>
-        <div class="debug-box" id="debugLog"></div>
-    </div>
-
-    <!-- ── Token ── -->
-    <div class="card">
-        <h2>JWT Token (decoded)</h2>
-        <div class="token-box" id="tokenBox">No token yet</div>
-    </div>
+    </main>
 </div>
 
 <script>
@@ -250,15 +1146,11 @@
     let room = null;
     let localTrack = null;
 
-    // Auto-generate a unique room name on every page load.
-    // This prevents stale agents from a previous session from lingering in
-    // the same room and overlapping with the new agent.
     (function seedRoomName() {
         const rand = Math.random().toString(36).slice(2, 10);
-        document.getElementById('roomName').value = `room-${rand}`;
+        document.getElementById('roomName').value = `speedcare-debug-${rand}`;
     })();
 
-    // ── Logging ──────────────────────────────────────────────────────────
     function log(msg, type = 'info') {
         const time = new Date().toLocaleTimeString();
         const container = document.getElementById('debugLog');
@@ -281,14 +1173,11 @@
         document.getElementById('connState').innerHTML = html;
     }
 
-    // ── Language change helper ────────────────────────────────────────────
     function onLanguageChange() {
         const lang = document.getElementById('language').value;
-        // No-op for now — voice list is static (all v3 voices work with any lang).
-        // Could auto-select a language-specific default here if desired.
+        return lang;
     }
 
-    // ── JWT decode ───────────────────────────────────────────────────────
     function decodeJWT(token) {
         try {
             const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
@@ -298,9 +1187,8 @@
         } catch (e) { return { error: e.message }; }
     }
 
-    // ── Token fetch ──────────────────────────────────────────────────────
     async function getToken(roomName, identity, language, voice, temperature, pace, sttMode) {
-        log(`Requesting token — room: ${roomName}  lang: ${language || 'default'}  voice: ${voice || 'default'}  stt_mode: ${sttMode || 'default'}  temp: ${temperature}  pace: ${pace}`);
+        log(`Requesting token - room: ${roomName}  lang: ${language || 'default'}  voice: ${voice || 'default'}  stt_mode: ${sttMode || 'default'}  temp: ${temperature}  pace: ${pace}`);
 
         const body = {
             call_sid: roomName,
@@ -319,7 +1207,7 @@
             body: JSON.stringify(body),
         });
 
-        log(`Token endpoint → HTTP ${response.status}`);
+        log(`Token endpoint - HTTP ${response.status}`);
         if (!response.ok) {
             const err = await response.text();
             throw new Error(`HTTP ${response.status}: ${err}`);
@@ -331,7 +1219,7 @@
         const expDate = decoded.exp ? new Date(decoded.exp * 1000) : null;
 
         document.getElementById('tokenBox').innerHTML =
-            `<strong>Raw (truncated):</strong> ${token.substring(0, 60)}…<br><br>` +
+            `<strong>Raw (truncated):</strong> ${token.substring(0, 60)}...<br><br>` +
             `<strong>Decoded:</strong><pre>${escapeHtml(JSON.stringify(decoded, null, 2))}</pre>`;
 
         if (expDate) {
@@ -340,7 +1228,6 @@
         return token;
     }
 
-    // ── Connect ──────────────────────────────────────────────────────────
     async function connect() {
         const roomName    = document.getElementById('roomName').value.trim();
         const identity    = document.getElementById('identity').value.trim();
@@ -353,19 +1240,16 @@
         if (!roomName) { alert('Enter a room name first.'); return; }
 
         document.getElementById('connectBtn').disabled = true;
-        setConnState('<span class="badge badge-idle">CONNECTING…</span>');
+        setConnState('<span class="badge badge-idle">CONNECTING...</span>');
         log('=== STARTING CONNECTION ===');
         log(`LiveKit URL: ${LIVEKIT_URL}`);
 
         try {
-            // 1. Token (triggers agent dispatch with full metadata)
             const token = await getToken(roomName, identity, language, voice, temperature, pace, sttMode);
 
-            // 2. Room
-            log('Creating LiveKit Room…');
+            log('Creating LiveKit Room...');
             room = new LivekitClient.Room({ adaptiveStream: true, dynacast: true });
 
-            // 3. Event handlers
             room.on('connected', () => {
                 log('Room connected', 'ok');
                 setConnState('<span class="badge badge-connected">CONNECTED</span>');
@@ -387,21 +1271,17 @@
                     const el = track.attach();
                     el.autoplay = true;
                     document.body.appendChild(el);
-                    log('Agent audio element attached — you should hear the agent', 'ok');
+                    log('Agent audio element attached - you should hear the agent', 'ok');
                 }
             });
 
-            // 4. Connect
-            log('Connecting to LiveKit…');
+            log('Connecting to LiveKit...');
             await room.connect(LIVEKIT_URL, token);
             log('WebSocket connection established', 'ok');
 
-            // 5. Microphone — echo cancellation + noise suppression prevent
-            // the agent's TTS from feeding back into VAD and triggering a
-            // second overlapping LLM response.
-            log('Requesting microphone…');
+            log('Requesting microphone...');
             if (!navigator.mediaDevices) {
-                throw new Error('navigator.mediaDevices unavailable — serve over HTTPS or localhost');
+                throw new Error('navigator.mediaDevices unavailable - serve over HTTPS or localhost');
             }
             localTrack = await LivekitClient.createLocalAudioTrack({
                 echoCancellation: true,
@@ -422,9 +1302,8 @@
         }
     }
 
-    // ── Disconnect ───────────────────────────────────────────────────────
     async function disconnect() {
-        log('Disconnecting…');
+        log('Disconnecting...');
         if (localTrack) { localTrack.stop(); localTrack = null; }
         if (room) { await room.disconnect(); room = null; }
         log('Disconnected', 'warn');

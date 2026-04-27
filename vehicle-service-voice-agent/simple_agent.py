@@ -38,14 +38,13 @@ from livekit.agents import (
 from livekit.agents.voice.room_io import RoomOptions
 from livekit.agents.voice.turn import TurnHandlingOptions
 from livekit.agents.types import DEFAULT_API_CONNECT_OPTIONS, NOT_GIVEN, APIConnectOptions, NotGivenOr
+from livekit.plugins import sarvam as livekit_sarvam
 from livekit.plugins import silero
 
 from agent_core.state_machine import ConversationalAgent
 from config import get_settings
 from db import async_session
 from plugins.sarvam_pronunciation import get_or_create_speedcare_dict
-from plugins.sarvam_stt import SarvamSTT
-from plugins.sarvam_tts import SarvamTTS
 
 load_dotenv(dotenv_path=".env.local", override=True)
 settings = get_settings()
@@ -56,42 +55,51 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 logger = logging.getLogger("speedcare.agent")
+for _noisy_logger in ("hpack", "h2", "httpcore", "httpx"):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 
 # ---------------------------------------------------------------------------
 # Per-language TTS voice profiles
-# Each entry defines the optimal SarvamTTS constructor kwargs for that language.
+# Each entry defines the optimal Sarvam streaming TTS defaults for that language.
 # "voice" is from the bulbul:v3 catalogue; "pace" is tuned for natural cadence.
 # These are the best-practice defaults — operators can override via job metadata.
 # ---------------------------------------------------------------------------
 _SUPPORTED_LANGS = ("en", "ta", "hi", "ml")
+
+LANGUAGE_BCP47: dict[str, str] = {
+    "en": "en-IN",
+    "ta": "ta-IN",
+    "hi": "hi-IN",
+    "ml": "ml-IN",
+}
 
 VOICE_PROFILES: dict[str, dict] = {
     "en": {
         "voice": "ishita",    # Clear, warm, neutral Indian-English accent
         "pace": 1.0,
         "speech_sample_rate": 24_000,
-        "output_codec": "wav",
+        "output_codec": "mp3",
         "temperature": 0.5,   # Professional, IVR-clear (0.5 = less expressive)
     },
     "ta": {
         "voice": "ishita",    # Excels across all Indian languages (Sarvam docs)
         "pace": 1.0,
         "speech_sample_rate": 24_000,
-        "output_codec": "wav",
+        "output_codec": "mp3",
         "temperature": 0.6,   # Warm natural default for Indian languages
     },
     "hi": {
         "voice": "ishita",    # Warm, natural Hindustani cadence
         "pace": 1.0,
         "speech_sample_rate": 24_000,
-        "output_codec": "wav",
+        "output_codec": "mp3",
         "temperature": 0.6,
     },
     "ml": {
         "voice": "ishita",    # Handles Malayalam phonology naturally
         "pace": 1.0,
         "speech_sample_rate": 24_000,
-        "output_codec": "wav",
+        "output_codec": "mp3",
         "temperature": 0.6,
     },
 }
@@ -315,17 +323,6 @@ async def entrypoint(ctx: JobContext) -> None:
         timeout=settings.LLM_HTTP_TIMEOUT,
         limits=httpx.Limits(max_keepalive_connections=10, keepalive_expiry=60.0),
     )
-    # Shared Sarvam transport reduces per-turn connection churn because STT and
-    # TTS hit the same host in sequence on most turns.
-    sarvam_http = _build_async_client(
-        timeout=30.0,
-        limits=httpx.Limits(
-            max_connections=8,
-            max_keepalive_connections=4,
-            keepalive_expiry=90.0,
-        ),
-    )
-
     async def _shutdown():
         try:
             await db.close()
@@ -333,10 +330,6 @@ async def entrypoint(ctx: JobContext) -> None:
             logger.exception("db_close_failed")
         try:
             await http.aclose()
-        except Exception:
-            pass
-        try:
-            await sarvam_http.aclose()
         except Exception:
             pass
 
@@ -396,19 +389,23 @@ async def entrypoint(ctx: JobContext) -> None:
 
     # Resolve TTS profile for this language, apply any per-call overrides
     profile = VOICE_PROFILES.get(lang, VOICE_PROFILES["en"])
+    bcp47_lang = LANGUAGE_BCP47.get(lang, LANGUAGE_BCP47["en"])
     effective_voice = voice_override or profile["voice"]
     effective_temperature = temperature_override if temperature_override is not None else profile["temperature"]
     effective_pace = pace_override if pace_override is not None else profile["pace"]
+    effective_tts_codec = settings.SARVAM_TTS_OUTPUT_AUDIO_CODEC or profile["output_codec"]
 
     # STT mode — per-call override or config default
     effective_stt_mode = stt_mode_override or settings.SARVAM_STT_MODE
 
     logger.info(
-        "call_language=%s stt_model=%s stt_mode=%s "
-        "tts_voice=%s tts_pace=%.2f tts_temp=%.2f tts_rate=%d dict_id=%s",
-        lang, settings.SARVAM_STT_MODEL, effective_stt_mode,
-        effective_voice, effective_pace, effective_temperature,
-        profile["speech_sample_rate"], _CACHED_DICT_ID or "none",
+        "call_language=%s bcp47=%s stt_model=%s stt_mode=%s stt_sample_rate=%d "
+        "tts_model=%s tts_voice=%s tts_pace=%.2f tts_temp=%.2f "
+        "tts_rate=%d tts_codec=%s dict_id=%s",
+        lang, bcp47_lang, settings.SARVAM_STT_MODEL, effective_stt_mode,
+        settings.SARVAM_STT_SAMPLE_RATE,
+        settings.SARVAM_TTS_MODEL, effective_voice, effective_pace, effective_temperature,
+        profile["speech_sample_rate"], effective_tts_codec, _CACHED_DICT_ID or "none",
     )
 
     agent = SpeedCareAgent(language=lang, voice=effective_voice, db=db, http_client=http)
@@ -434,6 +431,10 @@ async def entrypoint(ctx: JobContext) -> None:
             "resume_false_interruption": True,
             "false_interruption_timeout": settings.AGENT_FALSE_INTERRUPT_TIMEOUT,
         },
+        "preemptive_generation": {
+            "enabled": settings.AGENT_PREEMPTIVE_GENERATION,
+            "preemptive_tts": False,
+        },
     }
     logger.info(
         "turn_tuning lang=%s vad_min_silence=%.2f endpoint_min=%.2f endpoint_max=%.2f interruption_enabled=%s buffer_audio_while_speaking=%s interrupt_min=%.2f interrupt_words=%d false_interrupt_timeout=%.2f preemptive_generation=%s",
@@ -453,27 +454,33 @@ async def entrypoint(ctx: JobContext) -> None:
             min_silence_duration=silence,
             activation_threshold=0.45,   # avoid reacting to tiny bursts / echo
         ),
-        preemptive_generation=settings.AGENT_PREEMPTIVE_GENERATION,
         turn_handling=turn_handling,
-        stt=SarvamSTT(
-            language=lang,
+        stt=livekit_sarvam.STT(
+            language=bcp47_lang,
             model=settings.SARVAM_STT_MODEL,
             mode=effective_stt_mode,
-            http_client=sarvam_http,
+            api_key=settings.SARVAM_API_KEY,
+            high_vad_sensitivity=settings.SARVAM_STT_HIGH_VAD_SENSITIVITY,
+            sample_rate=settings.SARVAM_STT_SAMPLE_RATE,
+            flush_signal=settings.SARVAM_STT_FLUSH_SIGNAL,
+            input_audio_codec=settings.SARVAM_STT_INPUT_AUDIO_CODEC,
         ),
         llm=_StubLLM(),
-        tts=SarvamTTS(
-            language=lang,
-            voice=effective_voice,
-            model="bulbul:v3",
+        tts=livekit_sarvam.TTS(
+            target_language_code=bcp47_lang,
+            speaker=effective_voice,
+            model=settings.SARVAM_TTS_MODEL,
             pace=effective_pace,
             speech_sample_rate=profile["speech_sample_rate"],
-            output_codec=profile["output_codec"],
+            output_audio_codec=effective_tts_codec,
+            output_audio_bitrate=settings.SARVAM_TTS_OUTPUT_AUDIO_BITRATE,
+            min_buffer_size=settings.SARVAM_TTS_MIN_BUFFER_SIZE,
+            max_chunk_length=settings.SARVAM_TTS_MAX_CHUNK_LENGTH,
             temperature=effective_temperature,
             dict_id=_CACHED_DICT_ID,
-            http_client=sarvam_http,
-            # pitch / loudness / enable_preprocessing are bulbul:v2 only —
-            # SarvamTTS will NOT send them to the v3 endpoint.
+            send_completion_event=True,
+            api_key=settings.SARVAM_API_KEY,
+            # pitch / loudness / enable_preprocessing are bulbul:v2 only.
         ),
         aec_warmup_duration=settings.AGENT_AEC_WARMUP_DURATION,
     )

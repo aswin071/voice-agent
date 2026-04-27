@@ -25,6 +25,19 @@ class Settings(BaseSettings):
     #                Override per-call via dispatch metadata: {"stt_mode":"codemix"}
     SARVAM_STT_MODEL: str = "saaras:v3"
     SARVAM_STT_MODE: str = "transcribe"
+    SARVAM_STT_SAMPLE_RATE: int = 16000
+    SARVAM_STT_HIGH_VAD_SENSITIVITY: bool = True
+    SARVAM_STT_FLUSH_SIGNAL: bool = True
+    SARVAM_STT_INPUT_AUDIO_CODEC: str = "audio/wav"
+
+    # TTS streaming defaults. Use mp3 with the official LiveKit Sarvam plugin;
+    # Sarvam's wav stream chunks are not RIFF-framed per chunk, which makes
+    # LiveKit's WAV decoder reject them during streaming playback.
+    SARVAM_TTS_MODEL: str = "bulbul:v3"
+    SARVAM_TTS_OUTPUT_AUDIO_CODEC: str = "mp3"
+    SARVAM_TTS_OUTPUT_AUDIO_BITRATE: str = "128k"
+    SARVAM_TTS_MIN_BUFFER_SIZE: int = 50
+    SARVAM_TTS_MAX_CHUNK_LENGTH: int = 150
 
     # Pronunciation dictionary — set this after first worker startup so the
     # worker reuses the existing dict instead of creating a new one each time.
@@ -88,8 +101,8 @@ class Settings(BaseSettings):
     AGENT_INTERRUPT_MIN_WORDS: int = 2
     AGENT_FALSE_INTERRUPT_TIMEOUT: float = 1.2
     AGENT_AEC_WARMUP_DURATION: float = 4.0
-    AGENT_ALLOW_INTERRUPTION: bool = False
-    AGENT_PREEMPTIVE_GENERATION: bool = False
+    AGENT_ALLOW_INTERRUPTION: bool = True
+    AGENT_PREEMPTIVE_GENERATION: bool = True
     AGENT_BUFFER_AUDIO_WHILE_SPEAKING: bool = True
 
     # Sentry

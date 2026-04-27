@@ -22,7 +22,7 @@ bcrypt>=4.1.0
 
 # LiveKit
 livekit>=1.0
-livekit-agents[openai,deepgram,cartesia,silero,turn_detector]~=1.0
+livekit-agents[openai,deepgram,cartesia,silero,turn_detector,sarvam]~=1.5.6
 livekit-plugins-noise-cancellation~=0.2
 
 # Observability

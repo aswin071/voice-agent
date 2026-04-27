@@ -186,3 +186,68 @@ async def list_calls(
         data={"total": total, "page": page, "page_size": page_size, "items": items},
         request_id=request_id,
     )
+
+
+@router.get("/exotel/ivr-webhook")
+async def exotel_ivr_webhook(
+    CallSid: str = Query(...),
+    From: str | None = Query(None),
+    To: str | None = Query(None),
+    digits: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    request_id: str = Depends(get_request_id),
+):
+    digit = (digits or "").strip().strip('"')
+
+    language_map = {
+        "1": "en",
+        "2": "ta",
+        "3": "hi",
+        "4": "ml",
+    }
+    selected_language = language_map.get(digit, "ta")
+
+    result = await db.execute(
+        select(CallSession).where(CallSession.call_sid == CallSid)
+    )
+    session = result.scalar_one_or_none()
+
+    if session is None:
+        session = CallSession(
+            call_sid=CallSid,
+            caller_number=From or "unknown",
+            language=selected_language,
+            agent_state="ivr_selected",
+            metadata_={
+                "source": "exotel",
+                "exophone": To,
+                "digits": digit,
+                "request_id": request_id,
+            },
+        )
+        db.add(session)
+    else:
+        session.language = selected_language
+        session.agent_state = "ivr_selected"
+        metadata = session.metadata_ or {}
+        metadata.update({
+            "source": "exotel",
+            "exophone": To,
+            "digits": digit,
+            "request_id": request_id,
+        })
+        session.metadata_ = metadata
+
+    await db.commit()
+
+    return ResponseEnvelope(
+        data={
+            "call_sid": CallSid,
+            "from": From,
+            "to": To,
+            "digits": digit,
+            "language": selected_language,
+            "status": "ok",
+        },
+        request_id=request_id,
+    )

@@ -145,7 +145,10 @@ class PronunciationDictManager:
             files=files,
         )
         if resp.status_code != 200:
-            logger.error("[DICT] create failed HTTP %d: %s", resp.status_code, resp.text[:300])
+            if resp.status_code == 400 and "Dictionary limit exceeded" in resp.text:
+                logger.warning("[DICT] create skipped: Sarvam pronunciation dictionary limit exceeded")
+            else:
+                logger.error("[DICT] create failed HTTP %d: %s", resp.status_code, resp.text[:300])
             resp.raise_for_status()
 
         data = resp.json()
@@ -246,6 +249,21 @@ async def get_or_create_speedcare_dict() -> str | None:
             dict_id, dict_id,
         )
         return _CACHED_DICT_ID
+    except httpx.HTTPStatusError as e:
+        body = e.response.text if e.response is not None else ""
+        if e.response is not None and e.response.status_code == 400 and "Dictionary limit exceeded" in body:
+            logger.warning(
+                "[DICT] Sarvam pronunciation dictionary limit exceeded; "
+                "set SARVAM_DICT_ID in .env.local to reuse an existing dictionary. "
+                "TTS will proceed without custom pronunciations."
+            )
+        else:
+            logger.exception(
+                "[DICT] failed to create pronunciation dict - "
+                "TTS will proceed without custom pronunciations"
+            )
+        _CACHED_DICT_ID = None
+        return None
     except Exception:
         logger.exception(
             "[DICT] failed to create pronunciation dict — "
